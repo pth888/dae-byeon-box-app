@@ -26,8 +26,20 @@ import 'consent_service.dart';
 import 'notification_service.dart';
 
 /// 충격 감지 임계값 (G-Force)
-/// 일반 급제동 ≈ 0.8G, 사고 수준 ≈ 2.5G 이상
-const double kImpactThresholdG = 2.5;
+/// 중력(1G)을 뺀 순수 충격 기준. 가만히 있으면 0G, 일반 급제동 ≈ 0.8G.
+/// 백엔드·블랙박스와 맞춰 1.5G 이상을 충격으로 본다.
+const double kImpactThresholdG = 1.5;
+
+const double _kGravity = 9.81;
+
+/// 이 값보다 작은 흔들림(센서 잡음)은 0G 로 표시한다.
+const double _kNoiseFloorG = 0.05;
+
+/// 중력 방향을 따라가는 속도 (클수록 천천히 따라감)
+const Duration _kGravityTimeConstant = Duration(seconds: 1);
+
+/// 홈 화면 숫자 갱신 간격 (이 사이의 최대 충격을 보여준다)
+const Duration _kDisplayInterval = Duration(milliseconds: 100);
 
 /// 충격 감지 상태 (Riverpod StateNotifier)
 class SensorState {
@@ -89,6 +101,12 @@ class SensorNotifier extends StateNotifier<SensorState> {
   late bool _wasAuthorized;
   bool _monitoringRequested = false;
 
+  // 중력 추정값 (x, y, z). 폰이 어느 방향으로 놓여 있든 이 값을 빼서 순수 충격만 본다.
+  List<double>? _gravity;
+  DateTime? _lastSampleAt;
+  DateTime? _lastDisplayAt;
+  double _displayPeak = 0;
+
   // 블랙박스(외부) 신호로 트리거된 마지막 시각.
   // 블박이 주 감지자이므로, 블박 신호 직후에는 폰 센서 중복 감지를 막는다.
   DateTime? _lastExternalTrigger;
@@ -110,7 +128,8 @@ class SensorNotifier extends StateNotifier<SensorState> {
     // 가속도 센서 구독 (sensors_plus)
     _accelSub = (_accelerometerEvents ??
             accelerometerEventStream(
-              samplingPeriod: SensorInterval.normalInterval,
+              // 충격은 수십 ms 안에 끝나므로 촘촘히 읽는다 (약 20ms)
+              samplingPeriod: SensorInterval.gameInterval,
             ))
         .listen(_onAccelerometerEvent);
   }
@@ -126,7 +145,12 @@ class SensorNotifier extends StateNotifier<SensorState> {
     _gyroSub?.cancel();
     _accelSub = null;
     _gyroSub = null;
-    state = state.copyWith(isMonitoring: false, isImpactDetected: false);
+    _resetFilter();
+    state = state.copyWith(
+      isMonitoring: false,
+      isImpactDetected: false,
+      currentGForce: 0,
+    );
   }
 
   bool get _isAuthorized =>
@@ -157,18 +181,21 @@ class SensorNotifier extends StateNotifier<SensorState> {
   void _onAccelerometerEvent(AccelerometerEvent event) {
     final authorization = _authorizationGeneration;
     if (!_isAuthorizedFor(authorization) || !state.isMonitoring) return;
-    // 합력 G-Force 계산: sqrt(x² + y² + z²) / 9.81
-    final gForce = sqrt(
-          event.x * event.x + event.y * event.y + event.z * event.z,
-        ) /
-        9.81;
+    final now = DateTime.now();
+    final gForce = _impactG(event, now);
 
-    state = state.copyWith(currentGForce: gForce);
+    // 홈 화면 숫자: 100ms 마다 그 사이의 최대값으로 갱신 (임계값을 넘으면 바로)
+    if (gForce > _displayPeak) _displayPeak = gForce;
+    if (_lastDisplayAt == null ||
+        now.difference(_lastDisplayAt!) >= _kDisplayInterval ||
+        gForce >= kImpactThresholdG) {
+      state = state.copyWith(currentGForce: _displayPeak);
+      _displayPeak = 0;
+      _lastDisplayAt = now;
+    }
 
     // 임계값 초과 & 중복 감지 방지 (5초 쿨다운)
     if (gForce >= kImpactThresholdG) {
-      final now = DateTime.now();
-
       // 블박(주 감지자)이 방금 신호를 보냈으면 폰 센서는 양보(보조 역할).
       // 블박 신호 후 15초 이내의 폰 센서 감지는 같은 사고로 보고 무시한다.
       if (_lastExternalTrigger != null &&
@@ -182,6 +209,53 @@ class SensorNotifier extends StateNotifier<SensorState> {
         _onImpactDetected(gForce, now, authorization);
       }
     }
+  }
+
+  /// 중력을 뺀 순수 충격 (G). 가만히 있으면 0 근처.
+  ///
+  /// 가속도 센서 값에는 항상 중력(약 1G)이 들어 있어서 그대로 쓰면 정지 상태에서도 1G 가 나온다.
+  /// 저역 통과 필터로 중력 방향을 추정해 빼고, 남은 크기만 충격으로 본다.
+  double _impactG(AccelerometerEvent event, DateTime now) {
+    final x = event.x, y = event.y, z = event.z;
+    final gravity = _gravity;
+    double impact;
+    if (gravity == null) {
+      // 첫 값: 중력 방향을 모르므로 크기에서 1G 를 뺀다
+      final magnitude = sqrt(x * x + y * y + z * z);
+      impact = (magnitude - _kGravity).abs() / _kGravity;
+      _gravity = magnitude > 0
+          ? [
+              x * _kGravity / magnitude,
+              y * _kGravity / magnitude,
+              z * _kGravity / magnitude,
+            ]
+          : [0, 0, _kGravity];
+    } else {
+      final lx = x - gravity[0], ly = y - gravity[1], lz = z - gravity[2];
+      impact = sqrt(lx * lx + ly * ly + lz * lz) / _kGravity;
+
+      // 중력 추정값을 천천히 따라가게 갱신 (폰 방향이 바뀌어도 1초쯤이면 맞춰짐)
+      final last = _lastSampleAt;
+      var dt = last == null
+          ? 0.02
+          : now.difference(last).inMicroseconds / 1000000.0;
+      if (dt <= 0) dt = 0.001;
+      if (dt > 0.5) dt = 0.5;
+      final tau = _kGravityTimeConstant.inMicroseconds / 1000000.0;
+      final alpha = tau / (tau + dt);
+      gravity[0] = alpha * gravity[0] + (1 - alpha) * x;
+      gravity[1] = alpha * gravity[1] + (1 - alpha) * y;
+      gravity[2] = alpha * gravity[2] + (1 - alpha) * z;
+    }
+    _lastSampleAt = now;
+    return impact < _kNoiseFloorG ? 0 : impact;
+  }
+
+  void _resetFilter() {
+    _gravity = null;
+    _lastSampleAt = null;
+    _lastDisplayAt = null;
+    _displayPeak = 0;
   }
 
   // ── 외부(블랙박스/푸시) 신호로 사고 트리거 ───────────────

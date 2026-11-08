@@ -38,10 +38,22 @@ class ReportTypeCandidate {
     required this.code,
     required this.prob,
     this.description,
+    this.detail,
+    this.baseOurPct,
+    this.baseOtherPct,
   });
   final int code;
   final double prob;
+
+  /// 도로·사고 상황 (사고 유형 표의 첫 줄)
   final String? description;
+
+  /// 양쪽 차량의 행동 (두 번째 줄)
+  final String? detail;
+
+  /// 과실비율 인정기준표의 기본 과실
+  final int? baseOurPct;
+  final int? baseOtherPct;
 }
 
 /// 법령 또는 판례 원문 하나
@@ -266,7 +278,8 @@ class PdfReportService {
                 true),
             _typeTable(f, d),
             pw.SizedBox(height: 4),
-            _hintText(f, '보험사 과실비율 인정기준표의 같은 유형 번호와 비교해 볼 수 있습니다.'),
+            _hintText(f,
+                '기본 과실은 인정기준표의 출발점이며, 실제 비율은 신호·속도·진입 순서 등 수정 요소에 따라 달라집니다.'),
           ],
           if (d.clipStartMs != null && d.clipEndMs != null) ...[
             _h2(f, no(), '분석한 영상 구간', null, d.typeCandidates.isEmpty),
@@ -808,7 +821,23 @@ class PdfReportService {
             pw.SizedBox(width: 30, child: cell('${i + 1}', bold: i == 0)),
             pw.SizedBox(width: 56, child: cell('${c.code}', bold: i == 0)),
             pw.Expanded(
-                child: cell(c.description ?? '유형 ${c.code}', bold: i == 0)),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  cell(c.description ?? '유형 ${c.code}', bold: i == 0),
+                  if (c.detail != null) ...[
+                    pw.SizedBox(height: 2),
+                    pw.Text(c.detail!, style: _t(f, size: 7.5, color: _sub)),
+                  ],
+                  if (c.baseOurPct != null && c.baseOtherPct != null) ...[
+                    pw.SizedBox(height: 1),
+                    pw.Text(
+                        '인정기준 기본 과실  우리 ${c.baseOurPct}% : 상대 ${c.baseOtherPct}%',
+                        style: _t(f, size: 7.5, color: _hint)),
+                  ],
+                ],
+              ),
+            ),
             pw.SizedBox(
               width: 130,
               child: pw.Row(children: [
@@ -837,7 +866,7 @@ class PdfReportService {
     if (!hasDescription) {
       rows.add(pw.Padding(
           padding: const pw.EdgeInsets.only(top: 4),
-          child: _hintText(f, '유형별 설명은 서버에서 제공되지 않아 번호로만 표시합니다.')));
+          child: _hintText(f, '유형별 설명을 찾지 못해 번호로만 표시합니다.')));
     }
     return pw.Column(children: rows);
   }

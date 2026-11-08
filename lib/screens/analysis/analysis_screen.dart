@@ -12,6 +12,7 @@ import '../../services/consent_service.dart';
 import '../../services/device_service.dart';
 import '../../services/local_files.dart';
 import '../../services/map_service.dart';
+import '../../services/accident_type_catalog.dart';
 import '../../services/model_analysis_service.dart';
 import '../../services/pdf_report_service.dart';
 import '../../utils/theme.dart';
@@ -573,7 +574,8 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
       }
     }
 
-    // 사고 유형 후보
+    // 사고 유형 후보 (번호 → 인정기준표 설명)
+    final typeCatalog = await AccidentTypeCatalog.load();
     final typeCandidates = <ReportTypeCandidate>[];
     final topk = prediction?['type_topk'];
     if (topk is List) {
@@ -582,13 +584,18 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
         final code = m?['code'];
         final prob = m?['prob'];
         if (code is num && prob is num) {
-          final description = m?['description'];
+          final info = typeCatalog[code.toInt()];
+          final serverDescription = m?['description'];
           typeCandidates.add(ReportTypeCandidate(
             code: code.toInt(),
             prob: prob.toDouble(),
-            description: description is String && description.isNotEmpty
-                ? description
-                : null,
+            description: info?.title ??
+                (serverDescription is String && serverDescription.isNotEmpty
+                    ? serverDescription
+                    : null),
+            detail: info?.detail,
+            baseOurPct: info?.baseOurPct,
+            baseOtherPct: info?.baseOtherPct,
           ));
         }
       }

@@ -179,7 +179,7 @@ class _MainPageState extends ConsumerState<MainPage> {
                         label: '현재 충격',
                       ),
                       _buildStat(
-                        value: '2.5',
+                        value: kImpactThresholdG.toStringAsFixed(1),
                         unit: 'G',
                         label: '감지 임계값',
                         alignRight: false,
