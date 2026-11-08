@@ -105,6 +105,8 @@ void main() {
           );
           await tester.pumpAndSettle();
           await push;
+          await tester.tap(find.text('네, 사고 났어요'));
+          await tester.pumpAndSettle();
           expect(container.read(sensorProvider).caseId, isNull);
           await tester.tap(find.text('지금 시작'));
           await tester.pumpAndSettle();
