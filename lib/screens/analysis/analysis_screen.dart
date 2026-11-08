@@ -544,13 +544,6 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     'lane_change': '회전교차로 안에서 차로를 바꾸는 중',
   };
 
-  static const _fileKindLabels = <String, String>{
-    'original_video': '원본 블랙박스 영상',
-    'video': '추가 영상',
-    'photo': '현장 사진',
-    'image': '현장 사진',
-  };
-
   Future<ReportData> _buildReportData(
     ModelAnalysisReport report,
     String caseId,
@@ -689,25 +682,6 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
       }
     }
 
-    // 증거 파일 (원본 영상 고유값)
-    final evidenceFiles = <ReportEvidenceFile>[];
-    try {
-      final files =
-          await ref.read(backendEvidenceServiceProvider).listCaseFiles(caseId);
-      for (final file in files) {
-        final label = _fileKindLabels[file.kind];
-        if (label == null) continue;
-        evidenceFiles.add(ReportEvidenceFile(
-          label: label,
-          sha256: file.sha256,
-          sizeBytes: file.size,
-          receivedAt: file.createdAt,
-        ));
-      }
-    } on Object {
-      // 파일 목록을 못 받아도 리포트는 만든다.
-    }
-
     // 법령·판례: 쟁점별로 묶고, 쟁점 안에서는 조문 → 판례 순서
     final law = LawReportResult.fromAnalysis(analysis);
     final grouped = <String, List<LawReference>>{};
@@ -800,7 +774,6 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
       egoMovement: _egoMovementController.text.trim(),
       otherMovement: _otherMovementController.text.trim(),
       statements: statements,
-      evidenceFiles: evidenceFiles,
       lawKeywords: law.keywords,
       issues: issues,
       lawStatusNote: lawStatusNote,

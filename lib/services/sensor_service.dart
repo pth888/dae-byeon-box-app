@@ -2,13 +2,13 @@
 //
 // 담당 기능: 3.1 스마트폰 내부 센서 연동 사고 자동 감지 (E-Call 가상화)
 //   - sensors_plus 패키지로 가속도·자이로 센서 구독
-//   - 임계값 초과 시 사고 감지 → 자동 창 팝업 + GPS 긴급 SMS 발송
+//   - 임계값 초과 시 사고 감지 → 사고 감지 화면(15초 카운트다운)
+//   - 응답이 없을 때의 119·보호자 긴급 알림은 사고 감지 화면에서 처리한다
+//     (lib/services/emergency_dispatch_service.dart)
 //
 // 사용 패키지:
 //   sensors_plus: ^4.0.2        (pubspec.yaml dependencies)
-//   geolocator: ^11.0.0
 //   flutter_local_notifications: ^17.1.2
-//   url_launcher: ^6.2.5        (SMS 발송)
 //   flutter_riverpod: ^2.4.9    (상태 관리)
 
 import 'dart:async';
@@ -16,9 +16,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:sensors_plus/sensors_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'auth_service.dart';
 import 'case_service.dart';
@@ -338,76 +336,9 @@ class SensorNotifier extends StateNotifier<SensorState> {
       errorMessage: null,
     );
 
-    // 1) 로컬 푸시 알림 표시 (flutter_local_notifications)
+    // 로컬 푸시 알림 표시 (flutter_local_notifications)
+    // 화면 전환(카운트다운)은 홈 화면이 isImpactDetected 를 보고 연다.
     await NotificationService.showImpactAlert(caseId: caseId, gForce: gForce);
-    if (!_isAuthorizedFor(authorization)) return;
-
-    // 2) GPS 좌표 취득 (geolocator)
-    //    10초간 무응답 시 자동 SMS 발송
-    _scheduleAutoEmergencySms(
-      detectedAt,
-      authorization: authorization,
-    );
-  }
-
-  // ── 10초 무응답 시 긴급 SMS 자동 발송 ───────────────────
-  // externalLat/externalLon: 블박이 보낸 좌표가 있으면 폰 GPS 대신 이것을 사용
-  void _scheduleAutoEmergencySms(
-    DateTime detectedAt, {
-    required int authorization,
-    double? externalLat,
-    double? externalLon,
-  }) {
-    Future.delayed(const Duration(seconds: 10), () async {
-      // 아직 감지 상태라면 (사용자가 해제 안 했다면) 자동 발송
-      if (!_isAuthorizedFor(authorization) || !state.isImpactDetected) return;
-
-      // 블박 좌표가 있으면 그대로 사용 (폰 GPS 조회 생략)
-      if (externalLat != null && externalLon != null) {
-        await _sendEmergencySmsRaw(externalLat, externalLon, authorization);
-        return;
-      }
-
-      try {
-        final position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-        );
-        if (!_isAuthorizedFor(authorization)) return;
-        await _sendEmergencySms(position, authorization);
-      } catch (_) {
-        // 위치 취득 실패 시 최후 알려진 위치 사용
-      }
-    });
-  }
-
-  // ── 긴급 SMS 발송 (url_launcher) ────────────────────────
-  // Android: sms: URI, iOS: sms: URI
-  // telephony 패키지로 백그라운드 자동 발송 가능 (Android only)
-  Future<void> _sendEmergencySms(Position position, int authorization) async {
-    await _sendEmergencySmsRaw(
-      position.latitude,
-      position.longitude,
-      authorization,
-    );
-  }
-
-  // 좌표(위도/경도)로 직접 긴급 SMS 발송
-  Future<void> _sendEmergencySmsRaw(
-      double lat, double lon, int authorization) async {
-    if (!_isAuthorizedFor(authorization)) return;
-    final message = Uri.encodeComponent(
-      '[Dae-Byeon-BOX 긴급 알림] '
-      '충격이 감지되었습니다. '
-      '위치: https://maps.google.com/?q=$lat,$lon '
-      '발생 시각: ${DateTime.now()}',
-    );
-
-    // 119 신고 SMS
-    final smsUri = Uri.parse('sms:119?body=$message');
-    if (await canLaunchUrl(smsUri)) {
-      if (!_isAuthorizedFor(authorization)) return;
-      await launchUrl(smsUri);
-    }
   }
 
   // ── 감지 상태 초기화 (사용자가 "괜찮아요" 누른 경우) ────

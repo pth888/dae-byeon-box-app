@@ -15,6 +15,7 @@ import '../../utils/ocr_helper_io.dart'
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../utils/theme.dart';
+import '../../widgets/emergency_contact_card.dart';
 
 class _DeviceConnectionRequest {
   const _DeviceConnectionRequest({
@@ -385,6 +386,13 @@ class _MypageScreenState extends ConsumerState<MypageScreen> {
                     _buildSectionLabel('블랙박스'),
                     const SizedBox(height: 16),
                     _buildDeviceCard(),
+
+                    const SizedBox(height: 40),
+
+                    // ── 비상 연락처 (사고 후 무응답 시 위치 문자) ──
+                    _buildSectionLabel('비상 연락처'),
+                    const SizedBox(height: 16),
+                    const EmergencyContactCard(),
 
                     const SizedBox(height: 40),
 

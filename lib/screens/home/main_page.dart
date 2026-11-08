@@ -13,7 +13,7 @@ import '../../services/hardware_event_service.dart';
 import '../../services/sensor_service.dart';
 import '../../services/location_service.dart';
 import '../../utils/theme.dart';
-import '../../widgets/accident_alert_dialog.dart';
+import '../accident/accident_detection_screen.dart';
 import '../../widgets/brand_logo.dart';
 
 class MainPage extends ConsumerStatefulWidget {
@@ -67,25 +67,17 @@ class _MainPageState extends ConsumerState<MainPage> {
   Widget build(BuildContext context) {
     final sensorState = ref.watch(sensorProvider);
 
+    // 휴대폰 센서·사고 푸시로 충격이 감지되면 바로 카운트다운 화면을 연다.
+    // (의식이 없으면 버튼을 누를 수 없으므로 확인 창 없이 15초 카운트다운 후 긴급 알림)
     ref.listen<SensorState>(sensorProvider, (prev, next) {
       if (next.isImpactDetected && !(prev?.isImpactDetected ?? false)) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (dialogContext) => AccidentAlertDialog(
-            gForce: next.currentGForce,
-            onAccident: () {
-              final caseId = next.caseId;
-              Navigator.pop(dialogContext);
-              ref.read(sensorProvider.notifier).dismissAlert();
-              context.pushNamed('accident-detected', extra: caseId);
-            },
-            onDismiss: () {
-              Navigator.pop(dialogContext);
-              ref.read(sensorProvider.notifier).dismissAlert();
-            },
-          ),
-        );
+        final caseId = next.caseId;
+        // 알림 중 상태를 풀어 두어야 다음 충격도 다시 감지된다 (알림 처리 뒤에 실행)
+        Future.microtask(() {
+          if (mounted) ref.read(sensorProvider.notifier).dismissAlert();
+        });
+        if (AccidentDetectionScreen.isOpen) return;
+        context.pushNamed('accident-detected', extra: caseId);
       }
     });
 
