@@ -137,6 +137,7 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
     final contact = ref.watch(emergencyContactProvider);
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 22),
       title: const Row(
         children: [
           Icon(Icons.warning_amber, color: Colors.red, size: 28),
@@ -181,20 +182,15 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 12, color: AppTheme.textSub),
           ),
+          const SizedBox(height: 22),
+          _buttons(
+            primary: '네, 사고 났어요',
+            onPrimary: _accident,
+            secondary: '아니요, 괜찮아요',
+            onSecondary: _dismiss,
+          ),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: _dismiss,
-          child: const Text('아니요, 괜찮아요'),
-        ),
-        ElevatedButton(
-          onPressed: _accident,
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-          child: const Text('네, 사고 났어요',
-              style: TextStyle(color: Colors.white)),
-        ),
-      ],
     );
   }
 
@@ -225,6 +221,7 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
     final address = r.location?.address;
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 22),
       title: const Row(
         children: [
           Icon(Icons.campaign_outlined, color: Colors.red, size: 28),
@@ -298,16 +295,60 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
                 ],
               ),
             ),
+            const SizedBox(height: 14),
+            _buttons(
+              primary: '초동 대처 시작',
+              onPrimary: _accident,
+              secondary: '닫기',
+              onSecondary: _dismiss,
+            ),
           ],
         ),
       ),
-      actions: [
-        TextButton(onPressed: _dismiss, child: const Text('닫기')),
-        ElevatedButton(
-          onPressed: _accident,
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-          child: const Text('초동 대처 시작',
-              style: TextStyle(color: Colors.white)),
+    );
+  }
+
+  /// 위: 빨간 버튼(주 동작) · 아래: 테두리 버튼. 둘 다 창 너비만큼.
+  Widget _buttons({
+    required String primary,
+    required VoidCallback onPrimary,
+    required String secondary,
+    required VoidCallback onSecondary,
+  }) {
+    const shape = StadiumBorder();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 50,
+          child: ElevatedButton(
+            onPressed: onPrimary,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: shape,
+            ),
+            child: Text(primary,
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w600)),
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 50,
+          child: OutlinedButton(
+            onPressed: onSecondary,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.onSurface,
+              side: const BorderSide(color: Color(0xFF5A5A5E)),
+              shape: shape,
+            ),
+            child: Text(secondary,
+                style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w400)),
+          ),
         ),
       ],
     );
