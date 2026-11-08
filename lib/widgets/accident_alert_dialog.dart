@@ -21,6 +21,10 @@ import '../utils/theme.dart';
 /// 응답을 기다리는 시간
 const int kEmergencyCountdownSeconds = 15;
 
+/// 알림창 글꼴: 앱에 들어 있는 한글 글꼴(보통·굵게 두 가지)만 쓴다.
+/// 기기 기본 글꼴의 중간 굵기를 흉내 내면서 글자가 번져 보이는 것을 막는다.
+const String _kFont = 'NotoSansKR';
+
 enum _Phase { countdown, sending, sent }
 
 class AccidentAlertDialog extends ConsumerStatefulWidget {
@@ -45,13 +49,44 @@ class AccidentAlertDialog extends ConsumerStatefulWidget {
   final VoidCallback onDismiss;
 
   /// 알림창이 이미 떠 있는지 (같은 충격으로 여러 개 뜨지 않게)
-  static bool get isOpen => _openCount > 0;
+  static bool get isOpen => _showing || _openCount > 0;
   static int _openCount = 0;
+  static bool _showing = false;
+
+  /// 알림창을 한 번만 띄운다.
+  /// 같은 순간에 충격 신호가 두 번 오면(전방·후방 동시, 센서 연속 등) 창이 겹쳐 뜨면서
+  /// 같은 글자가 두 겹으로 그려져 번져 보였다. 띄우기 전에 바로 표시해서 막는다.
+  static Future<void> showOnce(BuildContext context, WidgetBuilder builder) async {
+    if (isOpen) return;
+    _showing = true;
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: builder,
+      );
+    } finally {
+      _showing = false;
+    }
+  }
 
   @override
   ConsumerState<AccidentAlertDialog> createState() =>
       _AccidentAlertDialogState();
 }
+
+const TextStyle _titleStyle = TextStyle(
+    fontFamily: _kFont,
+    fontSize: 18,
+    fontWeight: FontWeight.w700,
+    color: Colors.white,
+    height: 1.35);
+const TextStyle _bodyStyle = TextStyle(
+    fontFamily: _kFont,
+    fontSize: 14,
+    fontWeight: FontWeight.w400,
+    color: Colors.white,
+    height: 1.5);
 
 class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
   int _countdown = kEmergencyCountdownSeconds;
@@ -122,13 +157,19 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      child: switch (_phase) {
-        _Phase.countdown => _countdownDialog(),
-        _Phase.sending => _sendingDialog(),
-        _Phase.sent => _sentDialog(_result!),
-      },
+    // 아이패드 '볼드체 텍스트'(손쉬운 사용)가 켜져 있으면 글자를 한 단계 더 굵게 그리는데,
+    // 글꼴에 없는 굵기를 억지로 만들면서 한글 획이 겹쳐 깨져 보인다.
+    // 알림창 안에서는 이 설정을 끄고, 글꼴에 있는 굵기(보통·굵게)만 쓴다.
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(boldText: false),
+      child: PopScope(
+        canPop: false,
+        child: switch (_phase) {
+          _Phase.countdown => _countdownDialog(),
+          _Phase.sending => _sendingDialog(),
+          _Phase.sent => _sentDialog(_result!),
+        },
+      ),
     );
   }
 
@@ -137,12 +178,14 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
     final contact = ref.watch(emergencyContactProvider);
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      titleTextStyle: _titleStyle,
+      contentTextStyle: _bodyStyle,
       contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 22),
       title: const Row(
         children: [
           Icon(Icons.warning_amber, color: Colors.red, size: 28),
           SizedBox(width: 8),
-          Text('충격이 감지되었습니다', style: TextStyle(fontSize: 18)),
+          Text('충격이 감지되었습니다', style: TextStyle(fontFamily: _kFont, fontSize: 18)),
         ],
       ),
       content: Column(
@@ -162,9 +205,9 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
           const SizedBox(height: 14),
           Text(
             '$_countdown',
-            style: TextStyle(
+            style: TextStyle(fontFamily: _kFont, 
               fontSize: 44,
-              fontWeight: FontWeight.w300,
+              fontWeight: FontWeight.w400,
               height: 1,
               color: _countdown <= 5 ? Colors.red : null,
             ),
@@ -180,7 +223,7 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
                 ? '보호자 미등록 · 마이페이지에서 등록할 수 있어요'
                 : '보호자 ${contact.label}',
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 12, color: AppTheme.textSub),
+            style: const TextStyle(fontFamily: _kFont, fontSize: 12, color: AppTheme.textSub),
           ),
           const SizedBox(height: 22),
           _buttons(
@@ -198,6 +241,8 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
   Widget _sendingDialog() {
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      titleTextStyle: _titleStyle,
+      contentTextStyle: _bodyStyle,
       content: const Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -221,6 +266,8 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
     final address = r.location?.address;
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      titleTextStyle: _titleStyle,
+      contentTextStyle: _bodyStyle,
       contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 22),
       title: const Row(
         children: [
@@ -228,7 +275,7 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
           SizedBox(width: 8),
           Flexible(
             child: Text('119와 보호자에게\n연락했습니다',
-                style: TextStyle(fontSize: 18)),
+                style: TextStyle(fontFamily: _kFont, fontSize: 18)),
           ),
         ],
       ),
@@ -239,7 +286,7 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
           children: [
             Text(
               '$kEmergencyCountdownSeconds초 동안 응답이 없어 사고 위치를 알렸습니다.',
-              style: const TextStyle(fontSize: 13, color: AppTheme.textSub),
+              style: const TextStyle(fontFamily: _kFont, fontSize: 13, color: AppTheme.textSub),
             ),
             const SizedBox(height: 14),
             _row(Icons.local_hospital_outlined, '119 긴급 신고', '시연',
@@ -259,7 +306,7 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
                         ? '위치를 확인하지 못해 위치 없이 보냈습니다'
                         : (address ??
                             '${r.location!.latitude.toStringAsFixed(5)}, ${r.location!.longitude.toStringAsFixed(5)}'),
-                    style: const TextStyle(fontSize: 12.5),
+                    style: const TextStyle(fontFamily: _kFont, fontSize: 12.5),
                   ),
                 ),
               ],
@@ -268,7 +315,7 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
               const SizedBox(height: 12),
               Text(
                 r.demoReason!,
-                style: const TextStyle(
+                style: const TextStyle(fontFamily: _kFont, 
                     fontSize: 11.5,
                     color: AppTheme.warningOrange,
                     height: 1.4),
@@ -282,12 +329,12 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
                 tilePadding: EdgeInsets.zero,
                 childrenPadding: const EdgeInsets.only(bottom: 4),
                 title: const Text('보낸 문자 내용 보기',
-                    style: TextStyle(fontSize: 13)),
+                    style: TextStyle(fontFamily: _kFont, fontSize: 13)),
                 children: [
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(r.message,
-                        style: const TextStyle(
+                        style: const TextStyle(fontFamily: _kFont, 
                             fontSize: 12.5,
                             height: 1.5,
                             color: AppTheme.textSub)),
@@ -331,8 +378,8 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
               shape: shape,
             ),
             child: Text(primary,
-                style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.w600)),
+                style: const TextStyle(fontFamily: _kFont, 
+                    fontSize: 16, fontWeight: FontWeight.w700)),
           ),
         ),
         const SizedBox(height: 10),
@@ -346,7 +393,7 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
               shape: shape,
             ),
             child: Text(secondary,
-                style: const TextStyle(
+                style: const TextStyle(fontFamily: _kFont, 
                     fontSize: 15, fontWeight: FontWeight.w400)),
           ),
         ),
@@ -375,7 +422,7 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
       children: [
         Icon(icon, size: 20),
         const SizedBox(width: 10),
-        Expanded(child: Text(title, style: const TextStyle(fontSize: 14))),
+        Expanded(child: Text(title, style: const TextStyle(fontFamily: _kFont, fontSize: 14))),
         const SizedBox(width: 8),
         _chip(chip, color),
       ],
@@ -390,8 +437,8 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(text,
-          style: TextStyle(
-              color: color, fontSize: 11, fontWeight: FontWeight.w500)),
+          style: TextStyle(fontFamily: _kFont, 
+              color: color, fontSize: 11, fontWeight: FontWeight.w700)),
     );
   }
 }
