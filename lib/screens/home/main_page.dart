@@ -44,8 +44,6 @@ class _MainPageState extends ConsumerState<MainPage> {
 
   bool _homeIsVisible() {
     if (!mounted) return false;
-    // 충격 알림창이 떠 있는 동안은 블랙박스 알림 조회를 쉰다 (창이 겹쳐 뜨지 않게)
-    if (AccidentAlertDialog.isOpen) return false;
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     if (lifecycle != null && lifecycle != AppLifecycleState.resumed) {
       return false;
@@ -56,9 +54,10 @@ class _MainPageState extends ConsumerState<MainPage> {
   void _onHardwareIncident(HardwareEvent event) {
     if (!mounted || !_homeIsVisible() || AccidentAlertDialog.isOpen) return;
     // 블랙박스 충격도 휴대폰 센서와 같은 알림창 (15초 무응답 시 119·보호자 연락)
-    AccidentAlertDialog.showOnce(
-      context,
-      (dialogContext) => AccidentAlertDialog(
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AccidentAlertDialog(
         hardwareEvent: event,
         onAccident: () {
           Navigator.pop(dialogContext);
@@ -84,9 +83,10 @@ class _MainPageState extends ConsumerState<MainPage> {
       if (next.isImpactDetected &&
           !(prev?.isImpactDetected ?? false) &&
           !AccidentAlertDialog.isOpen) {
-        AccidentAlertDialog.showOnce(
-          context,
-          (dialogContext) => AccidentAlertDialog(
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) => AccidentAlertDialog(
             gForce: next.currentGForce,
             onAccident: () {
               final caseId = next.caseId;
