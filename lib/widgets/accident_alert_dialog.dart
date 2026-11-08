@@ -49,26 +49,8 @@ class AccidentAlertDialog extends ConsumerStatefulWidget {
   final VoidCallback onDismiss;
 
   /// 알림창이 이미 떠 있는지 (같은 충격으로 여러 개 뜨지 않게)
-  static bool get isOpen => _showing || _openCount > 0;
+  static bool get isOpen => _openCount > 0;
   static int _openCount = 0;
-  static bool _showing = false;
-
-  /// 알림창을 한 번만 띄운다.
-  /// 같은 순간에 충격 신호가 두 번 오면(전방·후방 동시, 센서 연속 등) 창이 겹쳐 뜨면서
-  /// 같은 글자가 두 겹으로 그려져 번져 보였다. 띄우기 전에 바로 표시해서 막는다.
-  static Future<void> showOnce(BuildContext context, WidgetBuilder builder) async {
-    if (isOpen) return;
-    _showing = true;
-    try {
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: builder,
-      );
-    } finally {
-      _showing = false;
-    }
-  }
 
   @override
   ConsumerState<AccidentAlertDialog> createState() =>
@@ -77,13 +59,13 @@ class AccidentAlertDialog extends ConsumerStatefulWidget {
 
 const TextStyle _titleStyle = TextStyle(
     fontFamily: _kFont,
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: FontWeight.w700,
     color: Colors.white,
     height: 1.35);
 const TextStyle _bodyStyle = TextStyle(
     fontFamily: _kFont,
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: FontWeight.w400,
     color: Colors.white,
     height: 1.5);
@@ -185,7 +167,7 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
         children: [
           Icon(Icons.warning_amber, color: Colors.red, size: 28),
           SizedBox(width: 8),
-          Text('충격이 감지되었습니다', style: TextStyle(fontFamily: _kFont, fontSize: 18)),
+          Text('충격이 감지되었습니다', style: TextStyle(fontFamily: _kFont, fontSize: 17)),
         ],
       ),
       content: Column(
@@ -206,9 +188,9 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
           Text(
             '$_countdown',
             style: TextStyle(fontFamily: _kFont, 
-              fontSize: 44,
+              fontSize: 40,
               fontWeight: FontWeight.w400,
-              height: 1,
+              height: 1.2,
               color: _countdown <= 5 ? Colors.red : null,
             ),
           ),
@@ -275,7 +257,7 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
           SizedBox(width: 8),
           Flexible(
             child: Text('119와 보호자에게\n연락했습니다',
-                style: TextStyle(fontFamily: _kFont, fontSize: 18)),
+                style: TextStyle(fontFamily: _kFont, fontSize: 17)),
           ),
         ],
       ),
@@ -368,10 +350,11 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SizedBox(
-          height: 50,
+          height: 48,
           child: ElevatedButton(
             onPressed: onPrimary,
             style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
               elevation: 0,
@@ -379,22 +362,23 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
             ),
             child: Text(primary,
                 style: const TextStyle(fontFamily: _kFont, 
-                    fontSize: 16, fontWeight: FontWeight.w700)),
+                    fontSize: 15, fontWeight: FontWeight.w700)),
           ),
         ),
         const SizedBox(height: 10),
         SizedBox(
-          height: 50,
+          height: 48,
           child: OutlinedButton(
             onPressed: onSecondary,
             style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               foregroundColor: Theme.of(context).colorScheme.onSurface,
               side: const BorderSide(color: Color(0xFF5A5A5E)),
               shape: shape,
             ),
             child: Text(secondary,
                 style: const TextStyle(fontFamily: _kFont, 
-                    fontSize: 15, fontWeight: FontWeight.w400)),
+                    fontSize: 14, fontWeight: FontWeight.w400)),
           ),
         ),
       ],
@@ -422,7 +406,7 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
       children: [
         Icon(icon, size: 20),
         const SizedBox(width: 10),
-        Expanded(child: Text(title, style: const TextStyle(fontFamily: _kFont, fontSize: 14))),
+        Expanded(child: Text(title, style: const TextStyle(fontFamily: _kFont, fontSize: 13.5))),
         const SizedBox(width: 8),
         _chip(chip, color),
       ],
