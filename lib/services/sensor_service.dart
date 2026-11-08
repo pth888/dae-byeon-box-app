@@ -27,7 +27,7 @@ import 'notification_service.dart';
 
 /// 충격 감지 임계값 (G-Force)
 /// 일반 급제동 ≈ 0.8G, 사고 수준 ≈ 2.5G 이상
-const double kImpactThresholdG = 2.5;
+const double kImpactThresholdG = 1.5;
 
 /// 충격 감지 상태 (Riverpod StateNotifier)
 class SensorState {
