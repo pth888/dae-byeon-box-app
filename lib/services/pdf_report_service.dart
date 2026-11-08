@@ -2,7 +2,7 @@
 //
 // 담당 기능: 정밀 사고 분석 리포트 PDF 생성 (흰 배경 · 한글 폰트)
 //   1장  결론 · 결과 확실도 · 과실비율 확률 분포 · 사고 정보(+지도) · AI 설명
-//   2장  사고 유형 후보 · 분석 영상 구간 · 판단에 들어간 입력
+//   2장  사고 유형 후보 · 분석 영상 구간 (없으면 2장 생략)
 //   3장  법령·판례 근거 (쟁점별, 원문 전체)
 //   4장  확인하지 못한 부분 · 다음에 할 일 · 안내
 //
@@ -271,8 +271,10 @@ class PdfReportService {
             _quote(f, d.aiSummary!, dark: true),
           ],
 
-          // ── 2장 ────────────────────────────────────────
-          pw.NewPage(),
+          // ── 2장 (내용이 있을 때만) ───────────────────────
+          if (d.typeCandidates.isNotEmpty ||
+              (d.clipStartMs != null && d.clipEndMs != null))
+            pw.NewPage(),
           if (d.typeCandidates.isNotEmpty) ...[
             _h2(f, no(), '모델이 판단한 사고 유형', '과실비율 인정기준 사고 유형 후보 상위 5개',
                 true),
@@ -285,8 +287,6 @@ class PdfReportService {
             _h2(f, no(), '분석한 영상 구간', null, d.typeCandidates.isEmpty),
             _timeline(f, d),
           ],
-          _h2(f, no(), '판단에 들어간 입력'),
-          ..._inputs(f, d),
 
           // ── 3장 · 법령·판례 ─────────────────────────────
           pw.NewPage(),
@@ -943,49 +943,6 @@ class PdfReportService {
         ],
       ),
     );
-  }
-
-  static List<pw.Widget> _inputs(_Fonts f, ReportData d) {
-    return [
-      _row(
-          f,
-          '도로 형태',
-          _value(f,
-              '${d.roadPlaceLabel ?? '확인 불가'} (${d.roadUserSelected ? '사용자가 직접 선택' : 'GPS 기반 자동 추정'})')),
-      if (d.otherActionLabel != null)
-        _row(f, '상대 차량 움직임', _value(f, d.otherActionLabel!)),
-      _row(
-        f,
-        '추가로 체크한 정황',
-        d.checkedFacts.isEmpty
-            ? _value(f, '없음')
-            : pw.Wrap(
-                spacing: 4,
-                runSpacing: 4,
-                children: d.checkedFacts.map((x) => _chip(f, x)).toList()),
-      ),
-      if ((d.egoMovement ?? '').isNotEmpty || (d.otherMovement ?? '').isNotEmpty)
-        _row(
-            f,
-            '차량 움직임 설명',
-            _value(f, [
-              if ((d.egoMovement ?? '').isNotEmpty) '내 차량: ${d.egoMovement}',
-              if ((d.otherMovement ?? '').isNotEmpty) '상대 차량: ${d.otherMovement}',
-            ].join('\n'))),
-      if (d.statements.isNotEmpty) ...[
-        pw.SizedBox(height: 8),
-        pw.Text('문처리에 남긴 진술', style: _t(f, size: 8.5, color: _sub)),
-        pw.SizedBox(height: 4),
-        ...d.statements.take(5).map((s) => pw.Padding(
-              padding: const pw.EdgeInsets.only(bottom: 4),
-              child: _quote(
-                  f, '“${s.text}”${s.at == null ? '' : '\n${_dateTime(s.at!)}'}'),
-            )),
-      ],
-      pw.SizedBox(height: 4),
-      _hintText(f,
-          '현재 모델은 도로 형태와 상대 차량 움직임 답변을 비율 계산에 사용합니다. 자유 설명과 진술은 설명·법령 검색에만 쓰이며 비율을 바꾸지 않습니다.'),
-    ];
   }
 
   // ════════════════════════════════════════════════════════
