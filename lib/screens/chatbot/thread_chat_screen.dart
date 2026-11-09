@@ -559,8 +559,9 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
                   ),
                 ),
               Container(
-                constraints:
-                    BoxConstraints(maxWidth: constraints.maxWidth * 0.78),
+                // 답변은 표가 들어가는 경우가 많아 폭을 넓게 쓴다
+                constraints: BoxConstraints(
+                    maxWidth: constraints.maxWidth * (isUser ? 0.78 : 1.0)),
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
@@ -582,16 +583,9 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
                       )
                     else
                       MarkdownBody(
-                        data: text,
+                        data: tidyChatMarkdown(text),
                         selectable: true,
-                        styleSheet: MarkdownStyleSheet(
-                          p: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w300,
-                            height: 1.5,
-                          ),
-                        ),
+                        styleSheet: _answerStyle,
                       ),
                     if (pending)
                       const Padding(
@@ -832,4 +826,103 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
     String two(int n) => n.toString().padLeft(2, '0');
     return '${date.year}.${two(date.month)}.${two(date.day)} ${two(date.hour)}:${two(date.minute)}';
   }
+}
+
+// ── 챗봇 답변 표시 스타일 ───────────────────────────────────
+const _answerText = TextStyle(
+  color: Colors.white,
+  fontSize: 14,
+  fontWeight: FontWeight.w300,
+  height: 1.5,
+);
+const _tableLine = Color(0xFF3A3A3E);
+
+final _answerStyle = MarkdownStyleSheet(
+  p: _answerText,
+  strong: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+  em: const TextStyle(color: Colors.white, fontStyle: FontStyle.italic),
+  h1: const TextStyle(
+      color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600, height: 1.4),
+  h2: const TextStyle(
+      color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600, height: 1.4),
+  h3: const TextStyle(
+      color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600, height: 1.4),
+  h4: const TextStyle(
+      color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600, height: 1.4),
+  listBullet: _answerText,
+  a: const TextStyle(color: Colors.white, decoration: TextDecoration.underline),
+  code: const TextStyle(
+    color: Colors.white,
+    backgroundColor: Color(0xFF2C2C2E),
+    fontSize: 13,
+  ),
+  codeblockDecoration: BoxDecoration(
+    color: const Color(0xFF2C2C2E),
+    borderRadius: BorderRadius.circular(8),
+  ),
+  // 인용(> 주의 ...) : 밝은 파란 배경 대신 왼쪽 선만 있는 어두운 상자
+  blockquote: const TextStyle(
+      color: Color(0xFFD1D1D6), fontSize: 13.5, fontWeight: FontWeight.w300, height: 1.5),
+  blockquotePadding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
+  blockquoteDecoration: const BoxDecoration(
+    color: Color(0xFF262628),
+    border: Border(left: BorderSide(color: AppTheme.warningOrange, width: 3)),
+  ),
+  horizontalRuleDecoration: const BoxDecoration(
+    border: Border(top: BorderSide(color: _tableLine, width: 1)),
+  ),
+  // 표
+  tableHead: const TextStyle(
+      color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600, height: 1.4),
+  tableBody: const TextStyle(
+      color: Color(0xFFE5E5EA), fontSize: 13, fontWeight: FontWeight.w300, height: 1.45),
+  tableHeadAlign: TextAlign.left,
+  tableBorder: const TableBorder(
+    top: BorderSide(color: _tableLine),
+    bottom: BorderSide(color: _tableLine),
+    horizontalInside: BorderSide(color: _tableLine),
+    verticalInside: BorderSide(color: Color(0xFF2A2A2D)),
+  ),
+  tableCellsPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+  tableColumnWidth: const FlexColumnWidth(),
+  tableCellsDecoration: const BoxDecoration(color: Color(0xFF1A1A1C)),
+);
+
+/// LLM 답변을 화면에 맞게 다듬는다.
+///   - 표 칸 안의 <br> 는 줄바꿈 대신 " · " 로 (마크다운 표는 칸 안 줄바꿈을 못 함)
+///   - 표 밖의 <br> 는 줄바꿈
+///   - \text{..}, \times, \frac{a}{b} 같은 수식 기호를 일반 글자로
+///   - "**과실 비율(결함률)**은" 처럼 괄호·따옴표 뒤에 조사가 붙으면 굵게가 안 먹는 문제 보정
+String tidyChatMarkdown(String raw) {
+  final br = RegExp(r'<br\s*/?>', caseSensitive: false);
+  final lines = raw.replaceAll('\r', '').split('\n').map((line) {
+    final isTableRow = line.trimLeft().startsWith('|');
+    return line.replaceAll(br, isTableRow ? ' · ' : '\n');
+  });
+  var s = lines.join('\n');
+
+  // 수식 → 일반 글자
+  s = s
+      .replaceAll(RegExp(r'\\\[|\\\]|\\\(|\\\)|\$\$'), '')
+      .replaceAllMapped(RegExp(r'\\text\{([^{}]*)\}'), (m) => m[1]!)
+      .replaceAllMapped(
+          RegExp(r'\\frac\{([^{}]*)\}\{([^{}]*)\}'), (m) => '(${m[1]}) ÷ (${m[2]})')
+      .replaceAll(r'\times', '×')
+      .replaceAll(r'\div', '÷')
+      .replaceAll(r'\cdot', '·')
+      .replaceAll(r'\%', '%')
+      .replaceAll(r'\leq', '≤')
+      .replaceAll(r'\geq', '≥');
+
+  // 굵게 보정: 닫는 ** 앞이 문장부호이고 바로 뒤에 글자가 오면 아주 얇은 공백을 넣는다
+  s = s.replaceAllMapped(
+    RegExp(r'''(\*\*[^*\n]+?[)\]"'’”.,:;!?%])\*\*(?=[가-힣A-Za-z0-9])'''),
+    (m) => '${m[1]}**\u200A',
+  );
+  // 여는 ** 앞이 글자이고 바로 뒤가 문장부호면 같은 방식으로 보정
+  s = s.replaceAllMapped(
+    RegExp(r'''(?<=[가-힣A-Za-z0-9])\*\*(?=[("'‘“\[])'''),
+    (m) => '\u200A**',
+  );
+  return s;
 }

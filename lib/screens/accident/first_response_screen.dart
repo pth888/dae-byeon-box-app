@@ -248,30 +248,57 @@ class _FirstResponseScreenState extends ConsumerState<FirstResponseScreen> {
 
     return Scaffold(
       backgroundColor: AppTheme.bgBlack,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(context),
-            _buildStepIndicator(),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 32, 24, 0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildStepHeader(step),
-                    const SizedBox(height: 28),
-                    _buildActionArea(),
-                    const SizedBox(height: 24),
-                  ],
+      body: GestureDetector(
+        // 왼쪽→오른쪽으로 밀면 뒤로 (이전 단계, 1단계면 이전 화면)
+        // 이 화면은 사고 감지 화면을 대체(go)해서 열리기 때문에
+        // iOS 기본 뒤로 밀기 제스처가 동작하지 않는다
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragStart: (d) => _swipeDx = 0,
+        onHorizontalDragUpdate: (d) => _swipeDx += d.delta.dx,
+        onHorizontalDragEnd: (d) {
+          final v = d.primaryVelocity ?? 0;
+          if (_swipeDx > 80 || v > 500) _goBack();
+          _swipeDx = 0;
+        },
+        child: SafeArea(
+          child: Column(
+            children: [
+              _buildHeader(context),
+              _buildStepIndicator(),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(24, 32, 24, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildStepHeader(step),
+                      const SizedBox(height: 28),
+                      _buildActionArea(),
+                      const SizedBox(height: 24),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            _buildBottomButton(),
-          ],
+              _buildBottomButton(),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  double _swipeDx = 0;
+
+  void _goBack() {
+    if (_currentStep > 0) {
+      setState(() => _currentStep--);
+      return;
+    }
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/');
+    }
   }
 
   // ── 헤더 ─────────────────────────────────────────────────
@@ -281,17 +308,7 @@ class _FirstResponseScreenState extends ConsumerState<FirstResponseScreen> {
       child: Row(
         children: [
           GestureDetector(
-            onTap: () {
-              if (_currentStep > 0) {
-                setState(() => _currentStep--);
-                return;
-              }
-              if (context.canPop()) {
-                context.pop();
-              } else {
-                context.go('/');
-              }
-            },
+            onTap: _goBack,
             child: const Icon(Icons.arrow_back_ios_new_rounded,
                 size: 20, color: Colors.white),
           ),
