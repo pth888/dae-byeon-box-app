@@ -265,45 +265,56 @@ class PdfReportService {
           _resultCard(f, d),
           pw.SizedBox(height: 8),
           _kpis(f, d),
-          if (d.ratioCandidates.isNotEmpty) ...[
-            _h2(f, no(), '과실비율 확률 분포', '모델이 각 비율 후보에 준 확률 · 우리 차량 기준'),
-            _distribution(f, d),
-            pw.SizedBox(height: 4),
-            _hintText(f,
-                '1순위 확률이 낮을수록 결과가 갈릴 여지가 큽니다. 보험사 판단이 가능성이 높은 범위 안에서 달라질 수 있습니다.'),
-          ],
-          _h2(f, no(), '사고 정보'),
-          _incidentInfo(f, d),
-          if (d.scenePhotos.isNotEmpty) ...[
-            _h2(f, no(), '현장 사진', '초동 대처에서 촬영해 사건에 저장한 사진 · ${d.scenePhotos.length}장'),
-            _scenePhotos(d),
-          ],
+          // 섹션 제목과 내용은 한 덩어리로 묶는다 (_keep).
+          // 페이지 끝에 제목만 남거나 내용이 잘릴 자리면 덩어리째 다음 페이지로 넘어간다.
+          if (d.ratioCandidates.isNotEmpty)
+            _keep([
+              _h2(f, no(), '과실비율 확률 분포', '모델이 각 비율 후보에 준 확률 · 우리 차량 기준'),
+              _distribution(f, d),
+              pw.SizedBox(height: 4),
+              _hintText(f,
+                  '1순위 확률이 낮을수록 결과가 갈릴 여지가 큽니다. 보험사 판단이 가능성이 높은 범위 안에서 달라질 수 있습니다.'),
+            ]),
+          _keep([
+            _h2(f, no(), '사고 정보'),
+            _incidentInfo(f, d),
+          ]),
+          if (d.scenePhotos.isNotEmpty)
+            _keep([
+              _h2(f, no(), '현장 사진', '초동 대처에서 촬영해 사건에 저장한 사진 · ${d.scenePhotos.length}장'),
+              _scenePhotos(d),
+            ]),
           if (d.aiSummary != null) ...[
+            // AI 설명은 길 수 있어 제목만 첫 줄과 묶지 않고, 본문은 페이지를 넘어갈 수 있게 둔다
             _h2(f, '!', 'AI 설명', '분석 결과를 문장으로 정리한 내용'),
             _quote(f, d.aiSummary!, dark: true),
           ],
-
-          // ── 이어서 (페이지를 강제로 나누지 않고 섹션 사이 여백만 둔다) ──
-          if (d.typeCandidates.isNotEmpty) ...[
-            _h2(f, no(), '모델이 판단한 사고 유형'),
-            _typeTable(f, d),
-          ],
-          if (d.clipStartMs != null && d.clipEndMs != null) ...[
-            _h2(f, no(), '분석한 영상 구간'),
-            _timeline(f, d),
-          ],
-          _h2(f, no(), '판단에 들어간 입력'),
-          ..._inputs(f, d),
+          if (d.typeCandidates.isNotEmpty)
+            _keep([
+              _h2(f, no(), '모델이 판단한 사고 유형'),
+              _typeTable(f, d),
+            ]),
+          if (d.clipStartMs != null && d.clipEndMs != null)
+            _keep([
+              _h2(f, no(), '분석한 영상 구간'),
+              _timeline(f, d),
+            ]),
+          _keep([
+            _h2(f, no(), '판단에 들어간 입력'),
+            ..._inputs(f, d),
+          ]),
 
           // ── 법령·판례 ──────────────────────────────────
           ..._lawSection(f, d, no()),
 
           // ── 다음에 할 일 ────────────────────────────────
-          _h2(f, no(), '다음에 할 일'),
-          _bullet(f, '보험사에 사고를 접수하고, 이 리포트와 원본 블랙박스 영상을 함께 전달하세요.'),
-          _bullet(f, '원본 영상은 편집하지 말고 그대로 보관하세요.'),
-          _bullet(f,
-              '보험사가 정한 비율에 동의하기 어려우면 과실비율분쟁심의위원회에 심의를 청구할 수 있습니다.'),
+          _keep([
+            _h2(f, no(), '다음에 할 일'),
+            _bullet(f, '보험사에 사고를 접수하고, 이 리포트와 원본 블랙박스 영상을 함께 전달하세요.'),
+            _bullet(f, '원본 영상은 편집하지 말고 그대로 보관하세요.'),
+            _bullet(f,
+                '보험사가 정한 비율에 동의하기 어려우면 과실비율분쟁심의위원회에 심의를 청구할 수 있습니다.'),
+          ]),
           pw.SizedBox(height: 16),
           pw.Container(
             padding: const pw.EdgeInsets.all(10),
@@ -372,6 +383,13 @@ class PdfReportService {
           fontSize: size,
           color: color,
           lineSpacing: spacing);
+
+  /// 여러 위젯을 한 덩어리로 묶어 페이지 사이에서 나뉘지 않게 한다.
+  /// (한 페이지보다 큰 내용에는 쓰지 않는다)
+  static pw.Widget _keep(List<pw.Widget> children) => pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: children,
+      );
 
   static pw.Widget _h2(_Fonts f, String number, String title,
       [String? desc, bool first = false]) {
