@@ -5,9 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../utils/theme.dart';
-import '../screens/chatbot/chatbot_screen.dart';
+import '../screens/chatbot/thread_chat_screen.dart';
 import '../services/auth_service.dart';
-import '../services/case_service.dart';
 
 /// 드래그 가능한 플로팅 챗봇 버튼.
 /// 화면 어디로든 끌어다 놓을 수 있고, 놓으면 좌/우 가장자리에 붙는다.
@@ -56,7 +55,7 @@ class _DraggableChatbotButtonState
         onTap: () => showChatbotSheet(
           context,
           screenContext: widget.screenContext,
-          caseId: ref.read(activeCaseProvider),
+          caseId: null,
           userId: ref.read(authProvider).email ?? 'signed-out',
         ),
         onPanUpdate: (details) {
@@ -117,7 +116,7 @@ class FloatingChatbotButton extends ConsumerWidget {
       onTap: () => showChatbotSheet(
         context,
         screenContext: screenContext,
-        caseId: ref.read(activeCaseProvider),
+        caseId: null,
         userId: ref.read(authProvider).email ?? 'signed-out',
       ),
       child: Container(
@@ -152,15 +151,29 @@ Future<void> showChatbotSheet(
   required String? caseId,
   required String userId,
 }) {
-  return showModalBottomSheet(
+  return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     barrierColor: Colors.black.withValues(alpha: 0.5),
-    builder: (_) => ChatbotSheet(
-      screenContext: screenContext,
-      caseId: caseId,
-      userId: userId,
-    ),
+    builder: (sheetContext) {
+      final media = MediaQuery.of(sheetContext);
+      final keyboard = media.viewInsets.bottom;
+      final available = (media.size.height - keyboard).clamp(0.0, media.size.height).toDouble();
+      final preferred = media.size.height * 0.82;
+      return Padding(
+        padding: EdgeInsets.only(bottom: keyboard),
+        child: SizedBox(
+          height: available < preferred ? available : preferred,
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            child: MediaQuery(
+              data: media.copyWith(viewInsets: EdgeInsets.zero),
+              child: ThreadChatScreen(initialCaseId: caseId, keyboardVisible: keyboard > 0),
+            ),
+          ),
+        ),
+      );
+    },
   );
 }

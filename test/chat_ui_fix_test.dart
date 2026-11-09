@@ -2,7 +2,10 @@ import 'dart:async';
 
 import 'package:blackbox_driver_care/screens/chatbot/chatbot_screen.dart';
 import 'package:blackbox_driver_care/services/chat_service.dart';
-import 'package:blackbox_driver_care/services/consent_service.dart';
+import 'package:blackbox_driver_care/services/auth_service.dart';
+import 'package:blackbox_driver_care/services/thread_chat_service.dart';
+
+import 'support/thread_chat_fakes.dart';
 import 'package:blackbox_driver_care/services/model_analysis_service.dart';
 import 'package:blackbox_driver_care/widgets/floating_chatbot_button.dart';
 import 'package:flutter/material.dart';
@@ -459,7 +462,7 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('modal chat sheet remains keyboard-safe on an iPhone viewport',
+  testWidgets('thread chat stays in a modal sheet and remains keyboard-safe',
       (tester) async {
     tester.view.devicePixelRatio = 3;
     tester.view.physicalSize = const Size(1170, 1944);
@@ -470,7 +473,8 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          chatServiceProvider.overrideWithValue(_ControlledChatService()),
+          authProvider.overrideWith((ref) => ThreadChatTestAuth()),
+          threadChatServiceProvider.overrideWithValue(ControlledThreads()),
         ],
         child: MaterialApp(
           home: Builder(
@@ -493,15 +497,17 @@ void main() {
     await tester.tap(find.text('open chat'));
     await tester.pumpAndSettle();
 
+    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(find.text('open chat'), findsOneWidget);
+
     await tester.tap(find.byType(TextField));
     for (var toggle = 0; toggle < 3; toggle++) {
       tester.view.viewInsets = const FakeViewPadding(bottom: 900);
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      expect(find.text(legalReferenceWarning), findsOneWidget);
+      expect(find.text('AI 연결은 보류 중입니다. 대화 기록과 추가 진술을 저장할 수 있습니다.'), findsOneWidget);
       expect(find.byType(TextField), findsOneWidget);
-      expect(find.text('과실 비율이 뭔가요?'), findsNothing);
       expect(
         tester.getBottomRight(find.byType(TextField)).dy,
         lessThanOrEqualTo(648 - 300),
@@ -510,9 +516,8 @@ void main() {
       tester.view.viewInsets = FakeViewPadding.zero;
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      expect(find.text(legalReferenceWarning), findsOneWidget);
+      expect(find.text('AI 연결은 보류 중입니다. 대화 기록과 추가 진술을 저장할 수 있습니다.'), findsOneWidget);
       expect(find.byType(TextField), findsOneWidget);
-      expect(find.text('과실 비율이 뭔가요?'), findsOneWidget);
     }
   });
 }

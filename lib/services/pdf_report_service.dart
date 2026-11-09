@@ -274,7 +274,7 @@ class PdfReportService {
           // ── 2장 ────────────────────────────────────────
           pw.NewPage(),
           if (d.typeCandidates.isNotEmpty) ...[
-            _h2(f, no(), '모델이 판단한 사고 유형', '과실비율 인정기준 사고 유형 후보 상위 5개',
+            _h2(f, no(), '모델이 판단한 사고 유형', '과실비율 인정기준 사고 유형 중 가장 가능성이 높은 유형',
                 true),
             _typeTable(f, d),
             pw.SizedBox(height: 4),
@@ -758,14 +758,11 @@ class PdfReportService {
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
+              // 서버 지도 위쪽 제목·아래쪽 설명이 잘리지 않게 원본 비율 그대로 넣는다
               pw.ClipRRect(
                 horizontalRadius: 6,
                 verticalRadius: 6,
-                child: pw.SizedBox(
-                  width: double.infinity,
-                  height: 150,
-                  child: pw.Image(pw.MemoryImage(map), fit: pw.BoxFit.cover),
-                ),
+                child: _mapImage(map),
               ),
               pw.SizedBox(height: 4),
               _hintText(f, '서버가 만든 사고 위치 지도입니다. 표시된 지점이 블랙박스 GPS 기준 사고 위치입니다.'),
@@ -796,7 +793,8 @@ class PdfReportService {
         ]),
       ),
     ];
-    for (var i = 0; i < d.typeCandidates.length; i++) {
+    // 1순위 유형만 보여준다
+    for (var i = 0; i < d.typeCandidates.length && i < 1; i++) {
       final c = d.typeCandidates[i];
       rows.add(pw.Container(
         padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 4),
@@ -940,6 +938,23 @@ class PdfReportService {
     );
   }
 
+  static pw.Widget _mapImage(Uint8List bytes) {
+    final image = pw.MemoryImage(bytes);
+    final w = image.width;
+    final h = image.height;
+    if (w != null && h != null && w > 0 && h > 0) {
+      return pw.AspectRatio(
+        aspectRatio: w / h,
+        child: pw.Image(image, fit: pw.BoxFit.contain),
+      );
+    }
+    return pw.SizedBox(
+      width: double.infinity,
+      height: 170,
+      child: pw.Image(image, fit: pw.BoxFit.contain),
+    );
+  }
+
   static List<pw.Widget> _inputs(_Fonts f, ReportData d) {
     return [
       _row(
@@ -967,19 +982,9 @@ class PdfReportService {
               if ((d.egoMovement ?? '').isNotEmpty) '내 차량: ${d.egoMovement}',
               if ((d.otherMovement ?? '').isNotEmpty) '상대 차량: ${d.otherMovement}',
             ].join('\n'))),
-      if (d.statements.isNotEmpty) ...[
-        pw.SizedBox(height: 8),
-        pw.Text('문처리에 남긴 진술', style: _t(f, size: 8.5, color: _sub)),
-        pw.SizedBox(height: 4),
-        ...d.statements.take(5).map((s) => pw.Padding(
-              padding: const pw.EdgeInsets.only(bottom: 4),
-              child: _quote(
-                  f, '“${s.text}”${s.at == null ? '' : '\n${_dateTime(s.at!)}'}'),
-            )),
-      ],
       pw.SizedBox(height: 4),
       _hintText(f,
-          '현재 모델은 도로 형태와 상대 차량 움직임 답변을 비율 계산에 사용합니다. 자유 설명과 진술은 설명·법령 검색에만 쓰이며 비율을 바꾸지 않습니다.'),
+          '현재 모델은 도로 형태와 상대 차량 움직임 답변을 비율 계산에 사용합니다. 자유 설명은 설명·법령 검색에만 쓰이며 비율을 바꾸지 않습니다.'),
     ];
   }
 
