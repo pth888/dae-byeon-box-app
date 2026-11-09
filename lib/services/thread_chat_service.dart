@@ -127,7 +127,10 @@ class ThreadChatService {
         throw ThreadChatException(
           error is Map && error['message'] is String ? error['message'] as String :
             '대화 서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.',
-          code: error is Map ? error['code'] as String? : null);
+          code: error is Map ? error['code'] as String?
+              // 서버가 이 요청 방식을 아예 모르면(405/501) 오류 본문 없이 온다
+              : (response.statusCode == 405 || response.statusCode == 501)
+                  ? 'method_not_allowed' : null);
       }
       if (raw is! Map || raw['data'] is! Map) {
         if (allowEmpty) return const {};

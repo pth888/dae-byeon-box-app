@@ -29,6 +29,7 @@ class ThreadChatScreen extends ConsumerStatefulWidget {
 class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
   final _instance = const Uuid().v4();
   final _scaffold = GlobalKey<ScaffoldState>();
+  final _messenger = GlobalKey<ScaffoldMessengerState>();
   final _input = TextEditingController();
   final _scroll = ScrollController();
   int _lastMessageCount = 0;
@@ -183,108 +184,112 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
         }
       });
     }
-    return Scaffold(
-      key: _scaffold,
-      backgroundColor: AppTheme.bgBlack,
-      resizeToAvoidBottomInset: false,
-      drawer: _historyDrawer(state),
-      body: SafeArea(
-        top: false,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
-            child: Column(
-              children: [
-                _header(state),
-                if (selected?.isAccident == true) _contextBanner(state),
-                Expanded(
-                  child: state.loading
-                      ? const Center(child: CircularProgressIndicator())
-                      : state.messages.isEmpty
-                          ? _welcome(state, keyboardVisible: keyboardVisible)
-                          : _messages(state),
-                ),
-                if (!keyboardVisible) _caseSelectButton(state),
-                if (state.sending)
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(20, 8, 20, 8),
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                        SizedBox(width: 10),
-                        Text(
-                          kThreadChatAiEnabled
-                              ? 'AI 답변을 기다리고 있어요'
-                              : '메시지를 저장하고 있어요',
-                          style: TextStyle(
-                            color: AppTheme.textSub,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
+    // 알림(스낵바)이 앱 전체 화면이 아니라 챗봇 창 안에서만 뜨게 따로 둔다
+    return ScaffoldMessenger(
+      key: _messenger,
+      child: Scaffold(
+        key: _scaffold,
+        backgroundColor: AppTheme.bgBlack,
+        resizeToAvoidBottomInset: false,
+        drawer: _historyDrawer(state),
+        body: SafeArea(
+          top: false,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 900),
+              child: Column(
+                children: [
+                  _header(state),
+                  if (selected?.isAccident == true) _contextBanner(state),
+                  Expanded(
+                    child: state.loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : state.messages.isEmpty
+                            ? _welcome(state, keyboardVisible: keyboardVisible)
+                            : _messages(state),
                   ),
-                if (state.error != null)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Text(
-                          state.error!,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: AppTheme.warningOrange,
-                            fontSize: 12,
+                  if (!keyboardVisible) _caseSelectButton(state),
+                  if (state.sending)
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(20, 8, 20, 8),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           ),
-                        ),
-                        if (state.retryText != null) ...[
-                          const SizedBox(height: 10),
-                          _retryButton(
-                            label: '답변 다시 요청',
-                            onPressed: state.sending
-                                ? null
-                                : () => _send(retry: true),
-                          ),
-                        ] else if (selected != null) ...[
-                          const SizedBox(height: 10),
-                          _retryButton(
-                            label: '대화 다시 불러오기',
-                            onPressed: () => controller.openThread(selected),
+                          SizedBox(width: 10),
+                          Text(
+                            kThreadChatAiEnabled
+                                ? 'AI 답변을 기다리고 있어요'
+                                : '메시지를 저장하고 있어요',
+                            style: TextStyle(
+                              color: AppTheme.textSub,
+                              fontSize: 12,
+                            ),
                           ),
                         ],
-                      ],
-                    ),
-                  ),
-                if (!keyboardVisible)
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(24, 0, 24, 8),
-                    child: Text(
-                      legalReferenceWarning,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: AppTheme.warningOrange,
-                        fontSize: 11,
-                        height: 1.4,
                       ),
                     ),
+                  if (state.error != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Text(
+                            state.error!,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: AppTheme.warningOrange,
+                              fontSize: 12,
+                            ),
+                          ),
+                          if (state.retryText != null) ...[
+                            const SizedBox(height: 10),
+                            _retryButton(
+                              label: '답변 다시 요청',
+                              onPressed: state.sending
+                                  ? null
+                                  : () => _send(retry: true),
+                            ),
+                          ] else if (selected != null) ...[
+                            const SizedBox(height: 10),
+                            _retryButton(
+                              label: '대화 다시 불러오기',
+                              onPressed: () => controller.openThread(selected),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  if (!keyboardVisible)
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(24, 0, 24, 8),
+                      child: Text(
+                        legalReferenceWarning,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppTheme.warningOrange,
+                          fontSize: 11,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  _composer(state),
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(20, 4, 20, 10),
+                    child: Text(
+                      kThreadChatAiEnabled
+                          ? 'AI는 실수할 수 있습니다. 사고·법률 안내는 참고용입니다.'
+                          : 'AI 연결은 보류 중입니다. 대화 기록과 추가 진술을 저장할 수 있습니다.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppTheme.textHint, fontSize: 10),
+                    ),
                   ),
-                _composer(state),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(20, 4, 20, 10),
-                  child: Text(
-                    kThreadChatAiEnabled
-                        ? 'AI는 실수할 수 있습니다. 사고·법률 안내는 참고용입니다.'
-                        : 'AI 연결은 보류 중입니다. 대화 기록과 추가 진술을 저장할 수 있습니다.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: AppTheme.textHint, fontSize: 10),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -857,7 +862,6 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
       ),
     );
     if (ok != true || !mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
     final wasSelected =
         ref.read(threadChatControllerProvider(_instance)).selected?.id ==
             thread.id;
@@ -868,8 +872,16 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
       _input.clear();
       _lastMessageCount = 0;
     }
-    messenger.showSnackBar(
-        SnackBar(content: Text(error ?? '대화를 삭제했습니다.')));
+    // 서랍을 닫고 챗봇 창 아래쪽에만 결과를 보여준다
+    _scaffold.currentState?.closeDrawer();
+    _messenger.currentState
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(error ?? '대화를 삭제했습니다.'),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        duration: const Duration(seconds: 3),
+      ));
   }
 
   String _date(DateTime value) {
