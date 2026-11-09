@@ -78,7 +78,7 @@ void main() {
       'device_name': 'Front',
     });
     await tester.pumpAndSettle();
-    await tester.tap(find.text('네, 사고 났어요'));
+    await tester.tap(find.text('지금 시작'));
     await tester.pumpAndSettle();
     expect(find.byType(FirstResponseScreen), findsOneWidget);
     expect(find.text('마이페이지에서 본인 블랙박스 기기를 먼저 등록해 주세요.'), findsNothing);
@@ -216,7 +216,7 @@ void main() {
           await tester.pumpAndSettle();
           await push;
           expect(find.text('충격 강도 측정값 없음'), findsOneWidget);
-          await tester.tap(find.text('네, 사고 났어요'));
+          await tester.tap(find.text('지금 시작'));
           await tester.pumpAndSettle();
           expect(container.read(sensorProvider).caseId, isNull);
           expect(
@@ -235,8 +235,6 @@ void main() {
         await tester.tap(find.text('사고 접수 시작'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('영상 없이 새 사고 접수'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('네, 사고 났어요'));
         await tester.pumpAndSettle();
 
         expect(

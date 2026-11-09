@@ -178,6 +178,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   deviceId: extra['device_id'] as String?,
                   triggeredAt: triggeredAt is DateTime ? triggeredAt : null,
                   isTestEvent: extra['test_event'] == true,
+                  manual: extra['manual'] == true,
                 );
               }
               return AccidentDetectionScreen(caseId: extra as String?);

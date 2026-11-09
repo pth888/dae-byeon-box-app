@@ -17,6 +17,7 @@ class AccidentDetectionScreen extends ConsumerStatefulWidget {
     this.deviceId,
     this.triggeredAt,
     this.isTestEvent = false,
+    this.manual = false,
   });
 
   final String? caseId;
@@ -27,6 +28,10 @@ class AccidentDetectionScreen extends ConsumerStatefulWidget {
   final DateTime? triggeredAt;
   final bool isTestEvent;
 
+  /// 사용자가 홈의 "사고 접수 시작"으로 직접 연 경우.
+  /// 이미 사고를 알고 누른 것이므로 카운트다운 없이 바로 초동 대처 1단계로 간다.
+  final bool manual;
+
   @override
   ConsumerState<AccidentDetectionScreen> createState() =>
       _AccidentDetectionScreenState();
@@ -35,6 +40,14 @@ class AccidentDetectionScreen extends ConsumerStatefulWidget {
 class _AccidentDetectionScreenState
     extends ConsumerState<AccidentDetectionScreen> {
   bool _resolvingCase = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.manual) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _onAccident());
+    }
+  }
 
   Future<void> _onAccident() async {
     if (!mounted || _resolvingCase) return;
@@ -66,6 +79,8 @@ class _AccidentDetectionScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error.toString())),
       );
+      // 수동 접수는 카운트다운 화면이 없으므로 홈으로 돌아간다
+      if (widget.manual) _onDismiss();
     }
   }
 
@@ -81,7 +96,25 @@ class _AccidentDetectionScreenState
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: AppTheme.bgBlack,
-        body: AccidentAlertDialog(
+        body: widget.manual
+            ? const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 32,
+                      height: 32,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2.5, color: Colors.white),
+                    ),
+                    SizedBox(height: 18),
+                    Text('초동 대처를 준비하는 중',
+                        style:
+                            TextStyle(color: AppTheme.textSub, fontSize: 14)),
+                  ],
+                ),
+              )
+            : AccidentAlertDialog(
           gForce: widget.impactG,
           deviceName: widget.deviceName,
           isTestEvent: widget.isTestEvent,

@@ -433,9 +433,13 @@ class _MainPageState extends ConsumerState<MainPage>
       setState(() => _openingManualIncident = false);
       final useLatest = await _confirmManualIncident(latest);
       if (!mounted || !isCurrentOwner() || useLatest == null) return;
+      // 직접 누른 접수는 카운트다운 없이 바로 초동 대처 1단계로
       context.pushNamed(
         'accident-detected',
-        extra: useLatest ? latest!.id : null,
+        extra: <String, dynamic>{
+          'case_id': useLatest ? latest!.id : null,
+          'manual': true,
+        },
       );
     } catch (error) {
       if (isCurrentOwner()) _showMessage(error.toString());

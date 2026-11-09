@@ -62,7 +62,7 @@ void main() {
       (tester) async {
     var accepted = 0;
     await tester.pumpWidget(app(accident: () => accepted++));
-    await tester.tap(find.text('네, 사고 났어요'));
+    await tester.tap(find.text('지금 시작'));
     await tester.pump(const Duration(seconds: 30));
     expect(accepted, 1);
     expect(find.textContaining('문자를 발송했습니다'), findsNothing);
@@ -75,7 +75,7 @@ void main() {
     var dismissed = 0;
     await tester.pumpWidget(
         app(accident: () => accepted++, dismiss: () => dismissed++));
-    await tester.tap(find.text('아니요, 괜찮아요'));
+    await tester.tap(find.text('오작동입니다'));
     await tester.pump(const Duration(seconds: 30));
     expect(dismissed, 1);
     expect(accepted, 0);

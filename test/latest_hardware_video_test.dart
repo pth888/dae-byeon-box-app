@@ -479,7 +479,11 @@ GoRouter _manualEntryRouter() => GoRouter(
         GoRoute(
           path: '/countdown',
           name: 'accident-detected',
-          builder: (_, state) => Text('countdown:${state.extra}'),
+          builder: (_, state) {
+            final extra = state.extra;
+            return Text(
+                'countdown:${extra is Map ? extra['case_id'] : extra}');
+          },
         ),
       ],
     );

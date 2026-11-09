@@ -1,11 +1,13 @@
 // lib/widgets/accident_alert_dialog.dart
 //
-// 충격 감지 → 초동 대처 시작 화면 (사고 감지 화면 안에 그려지는 창 하나)
-//   1) 15초 카운트다운: "네, 사고 났어요" / "아니요, 괜찮아요"
-//   2) 15초 동안 반응이 없으면 같은 창에서 119·보호자에게 문자를 보내고 결과를 보여준다
+// 충격 감지 → 초동 대처 시작 화면 (전체 화면, 테슬라 스타일 큰 카운트다운)
+//   1) 15초 카운트다운: 충격 강도·보호자 표시, "지금 시작" / "오작동입니다"
+//   2) 15초 동안 반응이 없으면 같은 화면에서 119·보호자에게 문자를 보내고 결과를 보여준다
 //        119 는 시연만, 보호자 문자는 안드로이드에서 실제 발송
 //        (아이폰·아이패드·블랙박스 테스트 충격은 시연)
-//   3) 결과를 보여준 뒤 10초 카운트다운 → 초동 대처 1단계로 이동
+//   3) 결과를 보여주면서 10초 카운트다운 → 초동 대처 1단계로 이동
+//
+// 팝업 창이 아니라 사고 감지 화면(AccidentDetectionScreen)의 본문 전체로 그린다.
 
 import 'dart:async';
 
@@ -23,21 +25,8 @@ const int kAccidentCountdownSeconds = 15;
 /// 문자 발송 결과를 보여준 뒤 1단계로 넘어가기까지의 시간
 const int kAfterDispatchSeconds = 10;
 
-/// 앱에 들어 있는 한글 글꼴(보통·굵게)만 쓴다.
-const String _kFont = 'NotoSansKR';
-
-const TextStyle _titleStyle = TextStyle(
-    fontFamily: _kFont,
-    fontSize: 17,
-    fontWeight: FontWeight.w700,
-    color: Colors.white,
-    height: 1.35);
-const TextStyle _bodyStyle = TextStyle(
-    fontFamily: _kFont,
-    fontSize: 13.5,
-    fontWeight: FontWeight.w400,
-    color: Colors.white,
-    height: 1.5);
+/// 넓은 화면(아이패드)에서도 가운데 이 너비 안에 모은다
+const double _kMaxContentWidth = 560;
 
 enum _Phase { countdown, sending, sent }
 
@@ -55,10 +44,10 @@ class AccidentAlertDialog extends ConsumerStatefulWidget {
   final String? deviceName;
   final bool isTestEvent;
 
-  /// 초동 대처 1단계로 이동 ("네, 사고 났어요" 또는 문자 발송 후 10초)
+  /// 초동 대처 1단계로 이동 ("지금 시작" 또는 문자 발송 후 10초)
   final VoidCallback onAccident;
 
-  /// "아니요, 괜찮아요" 또는 문자 발송 후 "닫기"
+  /// "오작동입니다" 또는 문자 발송 후 "닫기"
   final VoidCallback onDismiss;
 
   @override
@@ -146,258 +135,260 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => MediaQuery(
-        // 아이패드 '볼드체 텍스트' 설정이 켜져 있으면 한글 획이 겹쳐 보여서 끈다
-        data: MediaQuery.of(context).copyWith(boldText: false),
-        child: PopScope(
-          canPop: false,
-          child: switch (_phase) {
-            _Phase.countdown => _countdownDialog(),
-            _Phase.sending => _sendingDialog(),
-            _Phase.sent => _sentDialog(_result!),
-          },
-        ),
-      );
-
-  // ── 1. 15초 카운트다운 ─────────────────────────────────
-  Widget _countdownDialog() {
-    final contact = ref.watch(emergencyContactProvider);
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      titleTextStyle: _titleStyle,
-      contentTextStyle: _bodyStyle,
-      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 22),
-      title: const Row(
-        children: [
-          Icon(Icons.warning_amber, color: Colors.red, size: 28),
-          SizedBox(width: 8),
-          Expanded(child: Text('충격이 감지되었습니다')),
-        ],
-      ),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(_impactText, textAlign: TextAlign.center),
-            if (widget.isTestEvent) ...[
-              const SizedBox(height: 6),
-              _chip('테스트 충격', AppTheme.warningOrange),
-            ],
-            const SizedBox(height: 14),
-            Text(
-              '$_countdown',
-              style: TextStyle(
-                fontFamily: _kFont,
-                fontSize: 40,
-                fontWeight: FontWeight.w400,
-                height: 1.2,
-                color: _countdown <= 5 ? Colors.red : null,
+  Widget build(BuildContext context) {
+    final body = switch (_phase) {
+      _Phase.countdown => _countdownView(),
+      _Phase.sending => _sendingView(),
+      _Phase.sent => _sentView(_result!),
+    };
+    return MediaQuery(
+      // 아이패드 '볼드체 텍스트' 설정이 켜져 있으면 한글 획이 겹쳐 보여서 끈다
+      data: MediaQuery.of(context).copyWith(boldText: false),
+      child: PopScope(
+        canPop: false,
+        child: ColoredBox(
+          color: AppTheme.bgBlack,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints:
+                      const BoxConstraints(maxWidth: _kMaxContentWidth),
+                  child: body,
+                ),
               ),
             ),
-            const SizedBox(height: 10),
-            const Text(
-              '사고가 발생했나요?\n응답이 없으면 119와 보호자에게 문자를 보냅니다.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              contact == null
-                  ? '보호자 미등록 · 마이페이지에서 등록할 수 있어요'
-                  : '보호자 ${contact.label}',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                  fontFamily: _kFont, fontSize: 12, color: AppTheme.textSub),
-            ),
-            const SizedBox(height: 22),
-            _buttons(
-              primary: '네, 사고 났어요',
-              onPrimary: () => _complete(widget.onAccident),
-              secondary: '아니요, 괜찮아요',
-              onSecondary: () => _complete(widget.onDismiss),
-            ),
-          ],
+          ),
         ),
       ),
+    );
+  }
+
+  // ── 1. 15초 카운트다운 ─────────────────────────────────
+  Widget _countdownView() {
+    final contact = ref.watch(emergencyContactProvider);
+    return Column(
+      children: [
+        const SizedBox(height: 40),
+        _topLabel('충격 감지됨'),
+        Expanded(
+          child: Center(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _bigNumber(_countdown, warn: _countdown <= 5),
+                  const SizedBox(height: 24),
+                  const Text(
+                    '충격이 감지되었습니다',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w300,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          _impactText,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 15),
+                        ),
+                      ),
+                      if (widget.isTestEvent) ...[
+                        const SizedBox(width: 8),
+                        _chip('테스트 충격', AppTheme.warningOrange),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    '응답이 없으면 $_countdown초 후\n119와 보호자에게 문자를 보냅니다',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: AppTheme.textSub,
+                      fontSize: 14,
+                      height: 1.5,
+                      fontWeight: FontWeight.w300,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        contact == null
+                            ? Icons.person_off_outlined
+                            : Icons.person_outline,
+                        size: 15,
+                        color: AppTheme.textHint,
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          contact == null
+                              ? '보호자 미등록 · 마이페이지에서 등록할 수 있어요'
+                              : '보호자 ${contact.label}',
+                          style: const TextStyle(
+                              color: AppTheme.textHint, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        _primaryButton('지금 시작', () => _complete(widget.onAccident)),
+        const SizedBox(height: 12),
+        _outlineButton('오작동입니다', () => _complete(widget.onDismiss)),
+      ],
     );
   }
 
   // ── 2. 보내는 중 ────────────────────────────────────────
-  Widget _sendingDialog() {
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      titleTextStyle: _titleStyle,
-      contentTextStyle: _bodyStyle,
-      content: const Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(height: 8),
-          SizedBox(
-            width: 30,
-            height: 30,
-            child: CircularProgressIndicator(strokeWidth: 2.5),
+  Widget _sendingView() {
+    return Column(
+      children: [
+        const SizedBox(height: 40),
+        _topLabel('충격 감지됨'),
+        const Expanded(
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2.5, color: Colors.white),
+                ),
+                SizedBox(height: 22),
+                Text(
+                  '응답이 없어 119와 보호자에게\n문자를 보내는 중입니다',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      height: 1.5,
+                      fontWeight: FontWeight.w300),
+                ),
+              ],
+            ),
           ),
-          SizedBox(height: 18),
-          Text('응답이 없어 119와 보호자에게\n문자를 보내는 중입니다',
-              textAlign: TextAlign.center),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   // ── 3. 문자 발송 결과 + 10초 뒤 1단계 ───────────────────
-  Widget _sentDialog(EmergencyDispatchResult r) {
+  Widget _sentView(EmergencyDispatchResult r) {
     final demo = r.demoReason != null;
     final address = r.location?.address;
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      titleTextStyle: _titleStyle,
-      contentTextStyle: _bodyStyle,
-      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 22),
-      title: const Row(
-        children: [
-          Icon(Icons.campaign_outlined, color: Colors.red, size: 28),
-          SizedBox(width: 8),
-          Expanded(child: Text('119와 보호자에게\n문자를 발송했습니다')),
-        ],
-      ),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '$kAccidentCountdownSeconds초 동안 응답이 없어 사고 위치를 알렸습니다.',
-              style: TextStyle(
-                  fontFamily: _kFont, fontSize: 13, color: AppTheme.textSub),
-            ),
-            const SizedBox(height: 14),
-            _row(Icons.local_hospital_outlined, '119 긴급 신고', '시연',
-                AppTheme.warningOrange),
-            const SizedBox(height: 8),
-            _guardianRow(r),
-            const SizedBox(height: 14),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.place_outlined,
-                    size: 16, color: AppTheme.textSub),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
+    return Column(
+      children: [
+        const SizedBox(height: 40),
+        _topLabel('긴급 문자 발송됨'),
+        Expanded(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _bigNumber(_afterCountdown, size: 96),
+                  const SizedBox(height: 18),
+                  const Text(
+                    '119와 보호자에게 문자를 발송했습니다',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w300,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '$kAccidentCountdownSeconds초 동안 응답이 없어 사고 위치를 알렸습니다\n'
+                    '$_afterCountdown초 후 초동 대처 1단계로 넘어갑니다',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: AppTheme.textSub,
+                      fontSize: 14,
+                      height: 1.5,
+                      fontWeight: FontWeight.w300,
+                    ),
+                  ),
+                  const SizedBox(height: 26),
+                  _statusRow(Icons.local_hospital_outlined, '119 긴급 신고',
+                      '시연', AppTheme.warningOrange),
+                  const SizedBox(height: 10),
+                  _guardianRow(r),
+                  const SizedBox(height: 10),
+                  _statusRow(
+                    Icons.place_outlined,
                     r.location == null
                         ? '위치를 확인하지 못해 위치 없이 보냈습니다'
                         : (address ??
                             '${r.location!.latitude.toStringAsFixed(5)}, ${r.location!.longitude.toStringAsFixed(5)}'),
-                    style: const TextStyle(fontFamily: _kFont, fontSize: 12.5),
+                    null,
+                    null,
                   ),
-                ),
-              ],
-            ),
-            if (demo) ...[
-              const SizedBox(height: 12),
-              Text(
-                r.demoReason!,
-                style: const TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 11.5,
-                    color: AppTheme.warningOrange,
-                    height: 1.4),
-              ),
-            ],
-            const SizedBox(height: 14),
-            const Text('보낸 문자 내용',
-                style: TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700)),
-            const SizedBox(height: 6),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFF3A3A3E)),
-              ),
-              child: Text(r.message,
-                  style: const TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 12.5,
-                      height: 1.5,
-                      color: AppTheme.textSub)),
-            ),
-            const SizedBox(height: 10),
-            Center(
-              child: Text(
-                '$_afterCountdown초 후 초동 대처 1단계로 넘어갑니다',
-                style: const TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white),
+                  if (demo) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      r.demoReason!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          color: AppTheme.warningOrange,
+                          fontSize: 12,
+                          height: 1.4),
+                    ),
+                  ],
+                  const SizedBox(height: 22),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '보낸 문자 내용',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppTheme.cardDark,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFF2A2A2E)),
+                    ),
+                    child: Text(
+                      r.message,
+                      style: const TextStyle(
+                        color: AppTheme.textSub,
+                        fontSize: 13,
+                        height: 1.6,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 14),
-            _buttons(
-              primary: '지금 1단계로',
-              onPrimary: () => _complete(widget.onAccident),
-              secondary: '닫기',
-              onSecondary: () => _complete(widget.onDismiss),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 위: 빨간 버튼(주 동작) · 아래: 테두리 버튼. 둘 다 창 너비만큼.
-  Widget _buttons({
-    required String primary,
-    required VoidCallback onPrimary,
-    required String secondary,
-    required VoidCallback onSecondary,
-  }) {
-    const shape = StadiumBorder();
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(
-          height: 48,
-          child: ElevatedButton(
-            onPressed: onPrimary,
-            style: ElevatedButton.styleFrom(
-              // 테마의 위아래 여백(18) 때문에 글자 아래가 잘려서 0 으로 둔다
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              shape: shape,
-            ),
-            child: Text(primary,
-                style: const TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700)),
           ),
         ),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 48,
-          child: OutlinedButton(
-            onPressed: onSecondary,
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              foregroundColor: Theme.of(context).colorScheme.onSurface,
-              side: const BorderSide(color: Color(0xFF5A5A5E)),
-              shape: shape,
-            ),
-            child: Text(secondary,
-                style: const TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w400)),
-          ),
-        ),
+        _primaryButton('지금 1단계로', () => _complete(widget.onAccident)),
+        const SizedBox(height: 12),
+        _outlineButton('닫기', () => _complete(widget.onDismiss)),
       ],
     );
   }
@@ -405,46 +396,148 @@ class _AccidentAlertDialogState extends ConsumerState<AccidentAlertDialog> {
   Widget _guardianRow(EmergencyDispatchResult r) {
     final name = r.contact == null ? '보호자' : '보호자 ${r.contact!.label}';
     return switch (r.guardian) {
-      GuardianSmsStatus.sent =>
-        _row(Icons.sms_outlined, name, '전송 완료', AppTheme.successGreen),
-      GuardianSmsStatus.simulated =>
-        _row(Icons.sms_outlined, name, '시연', AppTheme.warningOrange),
-      GuardianSmsStatus.noContact => _row(Icons.person_off_outlined,
+      GuardianSmsStatus.sent => _statusRow(
+          Icons.sms_outlined, name, '전송 완료', AppTheme.successGreen),
+      GuardianSmsStatus.simulated => _statusRow(
+          Icons.sms_outlined, name, '시연', AppTheme.warningOrange),
+      GuardianSmsStatus.noContact => _statusRow(Icons.person_off_outlined,
           '보호자 미등록 (마이페이지에서 등록)', '미등록', AppTheme.textSub),
-      GuardianSmsStatus.permissionDenied => _row(Icons.sms_failed_outlined,
-          '$name · 문자 권한 없음', '실패', AppTheme.errorRed),
-      GuardianSmsStatus.failed => _row(Icons.sms_failed_outlined,
+      GuardianSmsStatus.permissionDenied => _statusRow(
+          Icons.sms_failed_outlined,
+          '$name · 문자 권한 없음',
+          '실패',
+          AppTheme.errorRed),
+      GuardianSmsStatus.failed => _statusRow(Icons.sms_failed_outlined,
           '$name · 문자 전송 실패', '실패', AppTheme.errorRed),
     };
   }
 
-  Widget _row(IconData icon, String title, String chip, Color color) {
+  // ── 공통 조각 ───────────────────────────────────────────
+  Widget _topLabel(String text) {
     return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(icon, size: 20),
-        const SizedBox(width: 10),
-        Expanded(
-            child: Text(title,
-                style: const TextStyle(fontFamily: _kFont, fontSize: 13.5))),
+        Container(
+          width: 6,
+          height: 6,
+          decoration: const BoxDecoration(
+            color: AppTheme.errorRed,
+            shape: BoxShape.circle,
+          ),
+        ),
         const SizedBox(width: 8),
-        _chip(chip, color),
+        Text(
+          text,
+          style: const TextStyle(
+            color: AppTheme.errorRed,
+            fontSize: 13,
+            fontWeight: FontWeight.w400,
+            letterSpacing: 1.5,
+          ),
+        ),
       ],
+    );
+  }
+
+  Widget _bigNumber(int value, {bool warn = false, double size = 160}) {
+    return Text(
+      '$value',
+      style: TextStyle(
+        color: warn ? AppTheme.errorRed : Colors.white,
+        fontSize: size,
+        fontWeight: FontWeight.w100,
+        height: 1.1,
+        letterSpacing: -4,
+      ),
+    );
+  }
+
+  Widget _statusRow(IconData icon, String title, String? chip, Color? color) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: AppTheme.cardDark,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF2A2A2E)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.white, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(title,
+                style: const TextStyle(color: Colors.white, fontSize: 14)),
+          ),
+          if (chip != null && color != null) ...[
+            const SizedBox(width: 10),
+            _chip(chip, color),
+          ],
+        ],
+      ),
     );
   }
 
   Widget _chip(String text, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         border: Border.all(color: color),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(text,
           style: TextStyle(
-              fontFamily: _kFont,
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w700)),
+              color: color, fontSize: 11, fontWeight: FontWeight.w500)),
+    );
+  }
+
+  Widget _primaryButton(String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        decoration: BoxDecoration(
+          color: AppTheme.pointWhite,
+          borderRadius: BorderRadius.circular(100),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Colors.black,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _outlineButton(String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        decoration: BoxDecoration(
+          border: Border.all(color: const Color(0xFF3A3A3E)),
+          borderRadius: BorderRadius.circular(100),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w400,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
