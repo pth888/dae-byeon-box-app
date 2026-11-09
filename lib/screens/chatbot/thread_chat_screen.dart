@@ -232,26 +232,31 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         Text(
                           state.error!,
+                          textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: AppTheme.warningOrange,
                             fontSize: 12,
                           ),
                         ),
-                        if (state.retryText != null)
-                          TextButton(
-                            onPressed:
-                                state.sending ? null : () => _send(retry: true),
-                            child: const Text('답변 다시 요청'),
-                          )
-                        else if (selected != null)
-                          TextButton(
-                            onPressed: () => controller.openThread(selected),
-                            child: const Text('대화 다시 불러오기'),
+                        if (state.retryText != null) ...[
+                          const SizedBox(height: 10),
+                          _retryButton(
+                            label: '답변 다시 요청',
+                            onPressed: state.sending
+                                ? null
+                                : () => _send(retry: true),
                           ),
+                        ] else if (selected != null) ...[
+                          const SizedBox(height: 10),
+                          _retryButton(
+                            label: '대화 다시 불러오기',
+                            onPressed: () => controller.openThread(selected),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -619,17 +624,30 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
         },
       );
 
+  /// 오류 아래 다시 시도 버튼 (가운데, 테두리 있는 알약 모양)
+  Widget _retryButton({required String label, VoidCallback? onPressed}) =>
+      Center(
+        child: OutlinedButton.icon(
+          onPressed: onPressed,
+          icon: const Icon(Icons.refresh_rounded, size: 18),
+          label: Text(label),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.white,
+            disabledForegroundColor: AppTheme.textHint,
+            side: const BorderSide(color: Color(0xFF5A5A5E)),
+            shape: const StadiumBorder(),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            minimumSize: const Size(0, 40),
+            textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          ),
+        ),
+      );
+
   Widget _composer(ThreadChatState state) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 24, 4),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            IconButton(
-              tooltip: '사고 기록 연결',
-              onPressed: state.loading ? null : _chooseAccident,
-              color: Colors.white,
-              icon: const Icon(Icons.attach_file_rounded, size: 22),
-            ),
             IconButton(
               tooltip: '대화 내역',
               onPressed: _openHistory,

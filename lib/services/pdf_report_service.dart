@@ -271,29 +271,23 @@ class PdfReportService {
             _quote(f, d.aiSummary!, dark: true),
           ],
 
-          // ── 2장 ────────────────────────────────────────
-          pw.NewPage(),
+          // ── 이어서 (페이지를 강제로 나누지 않고 섹션 사이 여백만 둔다) ──
           if (d.typeCandidates.isNotEmpty) ...[
-            _h2(f, no(), '모델이 판단한 사고 유형', '과실비율 인정기준 사고 유형 중 가장 가능성이 높은 유형',
-                true),
+            _h2(f, no(), '모델이 판단한 사고 유형'),
             _typeTable(f, d),
-            pw.SizedBox(height: 4),
-            _hintText(f, '보험사 과실비율 인정기준표의 같은 유형 번호와 비교해 볼 수 있습니다.'),
           ],
           if (d.clipStartMs != null && d.clipEndMs != null) ...[
-            _h2(f, no(), '분석한 영상 구간', null, d.typeCandidates.isEmpty),
+            _h2(f, no(), '분석한 영상 구간'),
             _timeline(f, d),
           ],
           _h2(f, no(), '판단에 들어간 입력'),
           ..._inputs(f, d),
 
-          // ── 3장 · 법령·판례 ─────────────────────────────
-          pw.NewPage(),
+          // ── 법령·판례 ──────────────────────────────────
           ..._lawSection(f, d, no()),
 
-          // ── 4장 ────────────────────────────────────────
-          pw.NewPage(),
-          _h2(f, no(), '다음에 할 일', null, true),
+          // ── 다음에 할 일 ────────────────────────────────
+          _h2(f, no(), '다음에 할 일'),
           _bullet(f, '보험사에 사고를 접수하고, 이 리포트와 원본 블랙박스 영상을 함께 전달하세요.'),
           _bullet(f, '원본 영상은 편집하지 말고 그대로 보관하세요.'),
           _bullet(f,
@@ -370,7 +364,7 @@ class PdfReportService {
   static pw.Widget _h2(_Fonts f, String number, String title,
       [String? desc, bool first = false]) {
     return pw.Padding(
-      padding: pw.EdgeInsets.only(top: first ? 0 : 16, bottom: 8),
+      padding: pw.EdgeInsets.only(top: first ? 0 : 20, bottom: 8),
       child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.center,
         children: [
@@ -776,84 +770,34 @@ class PdfReportService {
   // ════════════════════════════════════════════════════════
   //  2장
   // ════════════════════════════════════════════════════════
+  /// 1순위 사고 유형의 설명만 보여준다 (순위·번호·확률 없이)
   static pw.Widget _typeTable(_Fonts f, ReportData d) {
-    final hasDescription = d.typeCandidates.any((c) => c.description != null);
-    pw.Widget cell(String text, {bool bold = false, double size = 9}) =>
-        pw.Text(text, style: _t(f, size: size, bold: bold));
-    final rows = <pw.Widget>[
-      pw.Container(
-        padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-        decoration: const pw.BoxDecoration(
-            border: pw.Border(bottom: pw.BorderSide(color: _ink, width: 0.8))),
-        child: pw.Row(children: [
-          pw.SizedBox(width: 30, child: pw.Text('순위', style: _t(f, size: 7.5, color: _hint))),
-          pw.SizedBox(width: 56, child: pw.Text('유형 번호', style: _t(f, size: 7.5, color: _hint))),
-          pw.Expanded(child: pw.Text('사고 유형', style: _t(f, size: 7.5, color: _hint))),
-          pw.SizedBox(width: 130, child: pw.Text('확률', style: _t(f, size: 7.5, color: _hint))),
-        ]),
+    final c = d.typeCandidates.first;
+    return pw.Container(
+      width: double.infinity,
+      padding: const pw.EdgeInsets.fromLTRB(14, 10, 14, 10),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: _line),
+        borderRadius: pw.BorderRadius.circular(8),
       ),
-    ];
-    // 1순위 유형만 보여준다
-    for (var i = 0; i < d.typeCandidates.length && i < 1; i++) {
-      final c = d.typeCandidates[i];
-      rows.add(pw.Container(
-        padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-        decoration: const pw.BoxDecoration(
-            border: pw.Border(bottom: pw.BorderSide(color: _line, width: 0.6))),
-        child: pw.Row(
-          crossAxisAlignment: pw.CrossAxisAlignment.center,
-          children: [
-            pw.SizedBox(width: 30, child: cell('${i + 1}', bold: i == 0)),
-            pw.SizedBox(width: 56, child: cell('${c.code}', bold: i == 0)),
-            pw.Expanded(
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  cell(c.description ?? '유형 ${c.code}', bold: i == 0),
-                  if (c.detail != null) ...[
-                    pw.SizedBox(height: 2),
-                    pw.Text(c.detail!, style: _t(f, size: 7.5, color: _sub)),
-                  ],
-                  if (c.baseOurPct != null && c.baseOtherPct != null) ...[
-                    pw.SizedBox(height: 1),
-                    pw.Text(
-                        '인정기준 기본 과실  우리 ${c.baseOurPct}% : 상대 ${c.baseOtherPct}%',
-                        style: _t(f, size: 7.5, color: _hint)),
-                  ],
-                ],
-              ),
-            ),
-            pw.SizedBox(
-              width: 130,
-              child: pw.Row(children: [
-                pw.Container(
-                  width: 88,
-                  height: 5,
-                  decoration: pw.BoxDecoration(
-                      color: _fill, borderRadius: pw.BorderRadius.circular(2.5)),
-                  alignment: pw.Alignment.centerLeft,
-                  child: pw.Container(
-                    width: (88 * c.prob).clamp(1.0, 88.0).toDouble(),
-                    height: 5,
-                    decoration: pw.BoxDecoration(
-                        color: _brand,
-                        borderRadius: pw.BorderRadius.circular(2.5)),
-                  ),
-                ),
-                pw.SizedBox(width: 6),
-                pw.Text(_pct(c.prob), style: _t(f, size: 8.5)),
-              ]),
-            ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(c.description ?? '사고 유형 정보를 찾지 못했습니다',
+              style: _t(f, size: 10.5, bold: true)),
+          if (c.detail != null) ...[
+            pw.SizedBox(height: 3),
+            pw.Text(c.detail!, style: _t(f, size: 8.5, color: _sub)),
           ],
-        ),
-      ));
-    }
-    if (!hasDescription) {
-      rows.add(pw.Padding(
-          padding: const pw.EdgeInsets.only(top: 4),
-          child: _hintText(f, '유형별 설명을 찾지 못해 번호로만 표시합니다.')));
-    }
-    return pw.Column(children: rows);
+          if (c.baseOurPct != null && c.baseOtherPct != null) ...[
+            pw.SizedBox(height: 2),
+            pw.Text(
+                '인정기준 기본 과실  우리 ${c.baseOurPct}% : 상대 ${c.baseOtherPct}%',
+                style: _t(f, size: 8, color: _hint)),
+          ],
+        ],
+      ),
+    );
   }
 
   static pw.Widget _timeline(_Fonts f, ReportData d) {
@@ -995,7 +939,7 @@ class PdfReportService {
     final total = d.issues.fold<int>(0, (n, i) => n + i.refs.length);
     final out = <pw.Widget>[
       _h2(f, number, '법령 · 판례 근거',
-          total == 0 ? null : '검색된 근거 원문 전체 · $total건', true),
+          total == 0 ? null : '검색된 근거 원문 전체 · $total건'),
     ];
     if (d.lawKeywords.isNotEmpty) {
       out.add(pw.Padding(

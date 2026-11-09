@@ -31,6 +31,8 @@ target 'Runner' do
   use_frameworks!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  # 면허증 OCR: 한국어 글자 인식 모델 (google_mlkit_text_recognition 의 한국어 스크립트)
+  pod 'GoogleMLKit/TextRecognitionKorean'
   target 'RunnerTests' do
     inherit! :search_paths
   end

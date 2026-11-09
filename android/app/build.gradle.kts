@@ -43,4 +43,6 @@ flutter {
 dependencies {
     implementation("androidx.multidex:multidex:2.0.1")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    // 면허증 OCR: ML Kit 한국어 글자 인식 모델
+    implementation("com.google.mlkit:text-recognition-korean:16.0.1")
 }

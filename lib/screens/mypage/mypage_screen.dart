@@ -9,12 +9,10 @@ import '../../screens/chatbot/chatbot_screen.dart';
 import '../../services/profile_service.dart';
 import '../../services/device_service.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
-import '../../utils/ocr_helper_io.dart'
-    if (dart.library.html) '../../utils/ocr_helper_web.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../utils/theme.dart';
+import '../../widgets/driver_license_card.dart';
 import '../../widgets/emergency_contact_card.dart';
 
 class _DeviceConnectionRequest {
@@ -44,7 +42,6 @@ class _MypageScreenState extends ConsumerState<MypageScreen> {
   final _insurancePhoneController = TextEditingController();
 
   String _selectedVehicleType = '경차';
-  bool _isOcrLoading = false;
   bool _isSaving = false;
 
   // 블랙박스 기기 등록 상태
@@ -57,7 +54,6 @@ class _MypageScreenState extends ConsumerState<MypageScreen> {
   bool? _serverOnline;
 
   final _storage = const FlutterSecureStorage();
-  final _imagePicker = ImagePicker();
 
   final List<String> _vehicleTypes = ['경차', 'SUV', '세단', '대형 화물차', '승합차', '기타'];
 
@@ -189,40 +185,6 @@ class _MypageScreenState extends ConsumerState<MypageScreen> {
       });
     } catch (_) {
       // 서버 연결 실패해도 화면은 유지
-    }
-  }
-
-  Future<void> _scanLicense() async {
-    // 웹: ML Kit OCR 미지원 — 직접 입력 안내
-    if (!kOcrSupported) {
-      _showSnackbar('웹에서는 면허증 자동 인식을 지원하지 않습니다. 직접 입력해 주세요.',
-          isError: true);
-      return;
-    }
-
-    final picked = await _imagePicker.pickImage(
-      source: ImageSource.camera,
-      imageQuality: 90,
-    );
-    if (picked == null) return;
-    setState(() => _isOcrLoading = true);
-
-    try {
-      final text = await recognizeKoreanText(picked.path);
-
-      final licenseRegex = RegExp(r'\d{2}-\d{6}-\d{2}');
-      final match = licenseRegex.firstMatch(text);
-
-      if (match != null) {
-        setState(() => _licenseController.text = match.group(0)!);
-        _showSnackbar('면허증 인식 완료', isError: false);
-      } else {
-        _showSnackbar('OCR 인식 실패. 직접 입력해 주세요.', isError: true);
-      }
-    } catch (e) {
-      _showSnackbar('인식 중 오류 발생', isError: true);
-    } finally {
-      if (mounted) setState(() => _isOcrLoading = false);
     }
   }
 
@@ -399,48 +361,19 @@ class _MypageScreenState extends ConsumerState<MypageScreen> {
                     // ── 운전면허 ────────────────────────────
                     _buildSectionLabel('운전면허'),
                     const SizedBox(height: 16),
-                    GestureDetector(
-                      onTap: _isOcrLoading ? null : _scanLicense,
-                      behavior: HitTestBehavior.opaque,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        child: Row(
-                          children: [
-                            _isOcrLoading
-                                ? const SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2, color: Colors.white),
-                                  )
-                                : const Icon(Icons.camera_alt_outlined,
-                                    color: Colors.white, size: 22),
-                            const SizedBox(width: 14),
-                            Text(
-                              _isOcrLoading ? '인식 중...' : '면허증 촬영으로 자동 입력',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w300,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                    DriverLicenseCard(
+                      serverLicenseNumber: _licenseController.text,
+                      onSaved: (info) async {
+                        // 면허번호는 서버 프로필에도 저장한다
+                        setState(() => _licenseController.text = info.number);
+                        await _saveData();
+                      },
                     ),
-                    const SizedBox(height: 16),
-                    _buildField('면허번호', _licenseController, '00-000000-00'),
 
                     const SizedBox(height: 40),
 
-                    // ── 차량 정보 ────────────────────────────
-                    _buildSectionLabel('차량 정보'),
-                    const SizedBox(height: 20),
-                    _buildField('차량 번호', _plateController, '12가 3456'),
-                    const SizedBox(height: 24),
-                    _buildVehicleTypeSelector(),
-
-                    const SizedBox(height: 40),
+                    // 차량 번호·차종은 분석에 쓰이지 않아 화면에서 뺐다.
+                    // (예전에 저장한 값은 그대로 두고 프로필 저장 시 함께 보낸다)
 
                     // ── 보험 정보 ────────────────────────────
                     _buildSectionLabel('보험 정보'),
@@ -1098,52 +1031,6 @@ class _MypageScreenState extends ConsumerState<MypageScreen> {
               borderSide: BorderSide(color: Colors.white),
             ),
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildVehicleTypeSelector() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          '차종',
-          style: TextStyle(
-            color: AppTheme.textSub,
-            fontSize: 13,
-            fontWeight: FontWeight.w300,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: _vehicleTypes.map((type) {
-            final selected = _selectedVehicleType == type;
-            return GestureDetector(
-              onTap: () => setState(() => _selectedVehicleType = type),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                  color: selected ? AppTheme.pointWhite : Colors.transparent,
-                  border: Border.all(
-                    color: selected ? AppTheme.pointWhite : AppTheme.divider,
-                  ),
-                  borderRadius: BorderRadius.circular(100),
-                ),
-                child: Text(
-                  type,
-                  style: TextStyle(
-                    color: selected ? Colors.black : AppTheme.textSub,
-                    fontSize: 13,
-                    fontWeight: selected ? FontWeight.w500 : FontWeight.w300,
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
         ),
       ],
     );
