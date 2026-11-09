@@ -164,6 +164,26 @@ class ThreadChatController extends StateNotifier<ThreadChatState> {
     }
   }
 
+  /// 대화 삭제. 실패하면 사용자에게 보여줄 문구를, 성공하면 null 을 돌려준다.
+  Future<String?> deleteThread(ChatThread thread) async {
+    try {
+      await service.deleteThread(thread.id);
+    } catch (error) {
+      return _message(error);
+    }
+    if (!mounted) return null;
+    final remaining = state.threads.where((t) => t.id != thread.id).toList();
+    if (state.selected?.id == thread.id) {
+      // 보고 있던 대화를 지웠으면 새 대화 화면으로
+      ++_revision;
+      state = ThreadChatState(threads: remaining, listLoading: state.listLoading,
+        listError: state.listError);
+    } else {
+      state = state.copyWith(threads: remaining);
+    }
+    return null;
+  }
+
   Future<bool> retry() async {
     final text = state.retryText;
     if (text == null) return false;

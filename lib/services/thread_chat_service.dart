@@ -104,7 +104,8 @@ class ThreadChatService {
   static const _root = '/api/v1/chat/threads';
 
   Future<Map<String, dynamic>> _request(String method, String path,
-      {Map<String, dynamic>? body, Map<String, dynamic>? query}) async {
+      {Map<String, dynamic>? body, Map<String, dynamic>? query,
+      bool allowEmpty = false}) async {
     final generation = _generation();
     final token = await _accessToken();
     if (generation != _generation()) {
@@ -120,6 +121,7 @@ class ThreadChatService {
         throw const ThreadChatException('로그인 계정이 변경되었습니다.');
       }
       final raw = response.data;
+      if (allowEmpty && response.statusCode == 204) return const {};
       if (response.statusCode != 200 && response.statusCode != 201) {
         final error = raw is Map ? raw['error'] : null;
         throw ThreadChatException(
@@ -128,6 +130,7 @@ class ThreadChatService {
           code: error is Map ? error['code'] as String? : null);
       }
       if (raw is! Map || raw['data'] is! Map) {
+        if (allowEmpty) return const {};
         throw const ThreadChatException('대화 서버 응답이 올바르지 않습니다.');
       }
       return Map<String, dynamic>.from(raw['data'] as Map);
@@ -212,6 +215,25 @@ class ThreadChatService {
       }
     } while (cursor != null);
     return all.values.toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  }
+
+  /// 대화방 하나를 삭제한다.
+  /// 챗봇 서버의 이 대화와 메시지만 지운다. 사고·과실 분석 기록·영상 API는 호출하지 않는다.
+  Future<void> deleteThread(String id) async {
+    if (!RegExp(r'^thread_[0-9a-f]{32}$').hasMatch(id)) {
+      throw const ThreadChatException('삭제할 대화를 찾을 수 없습니다.');
+    }
+    try {
+      await _request('DELETE', '$_root/$id', allowEmpty: true);
+    } on ThreadChatException catch (e) {
+      // 이미 지워진 대화면 성공으로 본다
+      if (e.code == 'thread_not_found') return;
+      if (e.code == 'method_not_allowed') {
+        throw const ThreadChatException(
+            '아직 서버에서 대화 삭제를 지원하지 않습니다.', code: 'method_not_allowed');
+      }
+      rethrow;
+    }
   }
 
   Future<ThreadReply> send(String id, String text, String requestId) async {

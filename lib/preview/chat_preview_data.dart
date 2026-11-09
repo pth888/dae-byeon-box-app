@@ -50,6 +50,12 @@ class PreviewThreadService extends ThreadChatService {
   Map<String, dynamic> _clone(Map<String, dynamic> value) =>
     Map<String, dynamic>.from(jsonDecode(jsonEncode(value)) as Map);
 
+  @override
+  Future<void> deleteThread(String id) async {
+    _records.removeWhere((item) => item['id'] == id);
+    _save();
+  }
+
   Map<String, dynamic> _context(BackendCase item) => {
     'schema_version': 1, 'case_id': item.id, 'case_title': item.title,
     'report_version': 1, 'report_id': 'preview-report', 'status': 'ready',

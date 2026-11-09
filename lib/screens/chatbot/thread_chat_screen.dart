@@ -811,15 +811,66 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
                 _date(thread.updatedAt),
                 style: const TextStyle(fontSize: 10, color: AppTheme.textHint),
               ),
+              trailing: IconButton(
+                tooltip: '대화 삭제',
+                icon: const Icon(Icons.delete_outline_rounded,
+                    size: 20, color: AppTheme.textHint),
+                onPressed: () => _confirmDelete(thread),
+              ),
               onTap: () {
                 Navigator.pop(context);
                 _conversationRevision++;
                 _input.clear();
                 controller.openThread(thread);
               },
+              onLongPress: () => _confirmDelete(thread),
             ),
         ],
       );
+
+  /// 대화 삭제 확인 → 삭제
+  /// 챗봇 대화만 지운다. 사고 기록·과실 분석·영상은 그대로 둔다.
+  Future<void> _confirmDelete(ChatThread thread) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surfaceDark,
+        title: const Text('대화 삭제',
+            style: TextStyle(color: Colors.white, fontSize: 17)),
+        content: Text(
+          '"${thread.title}" 대화를 삭제할까요?\n\n'
+          '이 대화의 메시지만 지워집니다. 사고 기록, 과실 분석 결과, 영상은 그대로 남습니다.\n'
+          '삭제한 대화는 되돌릴 수 없습니다.',
+          style: const TextStyle(
+              color: AppTheme.textSub, fontSize: 13.5, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소', style: TextStyle(color: AppTheme.textSub)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('삭제', style: TextStyle(color: AppTheme.errorRed)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final wasSelected =
+        ref.read(threadChatControllerProvider(_instance)).selected?.id ==
+            thread.id;
+    final error = await controller.deleteThread(thread);
+    if (!mounted) return;
+    if (error == null && wasSelected) {
+      _conversationRevision++;
+      _input.clear();
+      _lastMessageCount = 0;
+    }
+    messenger.showSnackBar(
+        SnackBar(content: Text(error ?? '대화를 삭제했습니다.')));
+  }
 
   String _date(DateTime value) {
     final date = value.toLocal();
