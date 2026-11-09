@@ -2,9 +2,9 @@
 //
 // 담당 기능: 정밀 사고 분석 리포트 PDF 생성 (흰 배경 · 한글 폰트)
 //   1장  결론 · 결과 확실도 · 과실비율 확률 분포 · 사고 정보(+지도) · AI 설명
-//   2장  사고 유형 후보 · 분석 영상 구간 · 판단에 들어간 입력 · 증거 영상 무결성
+//   2장  사고 유형 후보 · 분석 영상 구간 · 판단에 들어간 입력
 //   3장  법령·판례 근거 (쟁점별, 원문 전체)
-//   4장  확인하지 못한 부분 · 다음에 할 일 · 안내
+//   4장  다음에 할 일 · 안내
 //
 // 긴 원문은 여러 문단으로 나눠 페이지를 넘어가도 잘리지 않게 한다.
 //
@@ -38,10 +38,22 @@ class ReportTypeCandidate {
     required this.code,
     required this.prob,
     this.description,
+    this.detail,
+    this.baseOurPct,
+    this.baseOtherPct,
   });
   final int code;
   final double prob;
+
+  /// 도로·사고 상황 (사고 유형 표의 첫 줄)
   final String? description;
+
+  /// 양쪽 차량의 행동 (두 번째 줄)
+  final String? detail;
+
+  /// 과실비율 인정기준표의 기본 과실
+  final int? baseOurPct;
+  final int? baseOtherPct;
 }
 
 /// 법령 또는 판례 원문 하나
@@ -274,13 +286,6 @@ class PdfReportService {
           ],
           _h2(f, no(), '판단에 들어간 입력'),
           ..._inputs(f, d),
-          if (d.evidenceFiles.isNotEmpty) ...[
-            _h2(f, no(), '증거 영상 무결성'),
-            _evidenceTable(f, d),
-            pw.SizedBox(height: 4),
-            _hintText(f,
-                '원본 파일의 고유값(SHA-256)이 같으면 서버 수신 이후 영상이 바뀌지 않았다는 뜻입니다. 보험사·분쟁 기관 제출 시 원본과 함께 제시할 수 있습니다.'),
-          ],
 
           // ── 3장 · 법령·판례 ─────────────────────────────
           pw.NewPage(),
@@ -288,14 +293,9 @@ class PdfReportService {
 
           // ── 4장 ────────────────────────────────────────
           pw.NewPage(),
-          if (d.unknowns.isNotEmpty) ...[
-            _h2(f, no(), '확인하지 못한 부분', null, true),
-            ...d.unknowns.map((u) => _bullet(f, u, warn: true)),
-          ],
-          _h2(f, no(), '다음에 할 일', null, d.unknowns.isEmpty),
+          _h2(f, no(), '다음에 할 일', null, true),
           _bullet(f, '보험사에 사고를 접수하고, 이 리포트와 원본 블랙박스 영상을 함께 전달하세요.'),
-          _bullet(f,
-              '원본 영상은 편집하지 말고 보관하세요. 증거 영상 무결성 항목의 고유값으로 원본임을 확인할 수 있습니다.'),
+          _bullet(f, '원본 영상은 편집하지 말고 그대로 보관하세요.'),
           _bullet(f,
               '보험사가 정한 비율에 동의하기 어려우면 과실비율분쟁심의위원회에 심의를 청구할 수 있습니다.'),
           pw.SizedBox(height: 16),
@@ -808,7 +808,23 @@ class PdfReportService {
             pw.SizedBox(width: 30, child: cell('${i + 1}', bold: i == 0)),
             pw.SizedBox(width: 56, child: cell('${c.code}', bold: i == 0)),
             pw.Expanded(
-                child: cell(c.description ?? '유형 ${c.code}', bold: i == 0)),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  cell(c.description ?? '유형 ${c.code}', bold: i == 0),
+                  if (c.detail != null) ...[
+                    pw.SizedBox(height: 2),
+                    pw.Text(c.detail!, style: _t(f, size: 7.5, color: _sub)),
+                  ],
+                  if (c.baseOurPct != null && c.baseOtherPct != null) ...[
+                    pw.SizedBox(height: 1),
+                    pw.Text(
+                        '인정기준 기본 과실  우리 ${c.baseOurPct}% : 상대 ${c.baseOtherPct}%',
+                        style: _t(f, size: 7.5, color: _hint)),
+                  ],
+                ],
+              ),
+            ),
             pw.SizedBox(
               width: 130,
               child: pw.Row(children: [
@@ -837,7 +853,7 @@ class PdfReportService {
     if (!hasDescription) {
       rows.add(pw.Padding(
           padding: const pw.EdgeInsets.only(top: 4),
-          child: _hintText(f, '유형별 설명은 서버에서 제공되지 않아 번호로만 표시합니다.')));
+          child: _hintText(f, '유형별 설명을 찾지 못해 번호로만 표시합니다.')));
     }
     return pw.Column(children: rows);
   }
@@ -965,48 +981,6 @@ class PdfReportService {
       _hintText(f,
           '현재 모델은 도로 형태와 상대 차량 움직임 답변을 비율 계산에 사용합니다. 자유 설명과 진술은 설명·법령 검색에만 쓰이며 비율을 바꾸지 않습니다.'),
     ];
-  }
-
-  static pw.Widget _evidenceTable(_Fonts f, ReportData d) {
-    pw.Widget head(String text, {double? width}) {
-      final t = pw.Text(text, style: _t(f, size: 7.5, color: _hint));
-      return width == null ? pw.Expanded(child: t) : pw.SizedBox(width: width, child: t);
-    }
-
-    return pw.Column(children: [
-      pw.Container(
-        padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-        decoration: const pw.BoxDecoration(
-            border: pw.Border(bottom: pw.BorderSide(color: _ink, width: 0.8))),
-        child: pw.Row(children: [
-          head('파일', width: 86),
-          head('SHA-256 (고유값)'),
-          head('크기', width: 52),
-          head('서버 수신', width: 74),
-        ]),
-      ),
-      ...d.evidenceFiles.map((e) => pw.Container(
-            padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-            decoration: const pw.BoxDecoration(
-                border: pw.Border(bottom: pw.BorderSide(color: _line, width: 0.6))),
-            child: pw.Row(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.SizedBox(width: 86, child: pw.Text(e.label, style: _t(f, size: 8.5))),
-                pw.Expanded(
-                    child: pw.Text(e.sha256,
-                        style: _t(f, size: 7, color: _sub))),
-                pw.SizedBox(
-                    width: 52,
-                    child: pw.Text(_size(e.sizeBytes), style: _t(f, size: 8.5))),
-                pw.SizedBox(
-                    width: 74,
-                    child: pw.Text(_dateTime(e.receivedAt, seconds: true),
-                        style: _t(f, size: 7.5))),
-              ],
-            ),
-          )),
-    ]);
   }
 
   // ════════════════════════════════════════════════════════
@@ -1185,13 +1159,6 @@ class PdfReportService {
   static String _num(double v) =>
       v == v.roundToDouble() ? v.toInt().toString() : v.toStringAsFixed(1);
   static String _sec(int ms) => '${(ms / 1000).toStringAsFixed(1)}초';
-  static String _size(int bytes) {
-    if (bytes >= 1024 * 1024) {
-      return '${(bytes / 1024 / 1024).toStringAsFixed(2)} MB';
-    }
-    if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '$bytes B';
-  }
 
   static String _shortId(String id) =>
       id.length <= 20 ? id : '${id.substring(0, 13)}…${id.substring(id.length - 6)}';

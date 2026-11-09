@@ -1,7 +1,12 @@
 // lib/services/accident_type_catalog.dart
 //
 // 사고 유형 번호(모델 type_topk 의 code) → 사고 유형 설명
-// 원본: assets/data/accident_types.json  {"번호": {"A": 상대 과실, "B": 우리 과실, "desc": "..."}}
+//
+// 1순위: assets/data/accident_type_labels.json
+//        {"번호": {"category": 도로 종류, "situation": 사고상황, "a": A(상대) 행동, "b": B(우리) 행동}}
+//        팀이 정리한 사고유형 매핑표(직선 도로·사거리·T자형·주차장·회전교차로·고속도로 등 116개)
+// 2순위: assets/data/accident_types.json  {"번호": {"A": 상대 과실, "B": 우리 과실, "desc": "..."}}
+//        기본 과실 비율은 항상 여기서 가져오고, 1순위에 없는 번호는 desc 를 다듬어 쓴다.
 //
 // desc 는 과실비율 인정기준표를 옮기면서 일부 칸이 잘려 있다
 // (예: "사거리교차로(신 | ...", "호등 없음) | ..."). 화면에 보여줄 때 다듬는다.
@@ -33,9 +38,9 @@ class AccidentTypeInfo {
   /// 상대(A) 행동
   final String otherAction;
 
-  /// 인정기준표의 기본 과실 (우리 = B, 상대 = A)
-  final int baseOurPct;
-  final int baseOtherPct;
+  /// 인정기준표의 기본 과실 (우리 = B, 상대 = A). 표에 없으면 null
+  final int? baseOurPct;
+  final int? baseOtherPct;
 
   /// 한 줄 설명 (리포트 표의 두 번째 줄)
   String get detail => '우리 차량: $ourAction · 상대: $otherAction';
@@ -52,16 +57,52 @@ class AccidentTypeCatalog {
     final cached = _cache;
     if (cached != null) return cached;
     try {
-      final raw = await rootBundle.loadString('assets/data/accident_types.json');
-      final decoded = jsonDecode(raw);
       final items = <int, AccidentTypeInfo>{};
+      final basePct = <int, (int, int)>{};
+
+      // 기본 과실 + 예전 설명
+      final decoded =
+          jsonDecode(await rootBundle.loadString('assets/data/accident_types.json'));
       if (decoded is Map) {
         decoded.forEach((key, value) {
           final code = int.tryParse('$key');
           if (code == null || value is! Map) return;
+          final a = value['A'];
+          final b = value['B'];
+          if (a is num && b is num) basePct[code] = (b.toInt(), a.toInt());
           final info = _parse(code, value);
           if (info != null) items[code] = info;
         });
+      }
+
+      // 팀 매핑표 (있으면 이걸로 덮어쓴다)
+      try {
+        final labels = jsonDecode(
+            await rootBundle.loadString('assets/data/accident_type_labels.json'));
+        if (labels is Map) {
+          labels.forEach((key, value) {
+            final code = int.tryParse('$key');
+            if (code == null || value is! Map) return;
+            final situation = value['situation'];
+            final a = value['a'];
+            final b = value['b'];
+            if (situation is! String || a is! String || b is! String) return;
+            final category = value['category'];
+            final pct = basePct[code];
+            items[code] = AccidentTypeInfo(
+              code: code,
+              title: category is String && category.isNotEmpty
+                  ? '$category · $situation'
+                  : situation,
+              ourAction: b,
+              otherAction: a,
+              baseOurPct: pct?.$1,
+              baseOtherPct: pct?.$2,
+            );
+          });
+        }
+      } catch (_) {
+        // 매핑표를 못 읽으면 예전 설명을 쓴다
       }
       return _cache = AccidentTypeCatalog._(items);
     } catch (_) {

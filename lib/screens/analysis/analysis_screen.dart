@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../services/accident_type_catalog.dart';
 import '../../services/auth_service.dart';
 import '../../services/blackbox_video_service.dart';
 import '../../services/case_service.dart';
@@ -597,6 +598,8 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     }
 
     // 사고 유형 후보
+    // 유형 번호 → 설명 (assets/data/accident_types.json)
+    final typeCatalog = await AccidentTypeCatalog.load();
     final typeCandidates = <ReportTypeCandidate>[];
     final topk = prediction?['type_topk'];
     if (topk is List) {
@@ -605,13 +608,18 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
         final code = m?['code'];
         final prob = m?['prob'];
         if (code is num && prob is num) {
+          final info = typeCatalog[code.toInt()];
           final description = m?['description'];
           typeCandidates.add(ReportTypeCandidate(
             code: code.toInt(),
             prob: prob.toDouble(),
-            description: description is String && description.isNotEmpty
-                ? description
-                : null,
+            description: info?.title ??
+                (description is String && description.isNotEmpty
+                    ? description
+                    : null),
+            detail: info?.detail,
+            baseOurPct: info?.baseOurPct,
+            baseOtherPct: info?.baseOtherPct,
           ));
         }
       }
