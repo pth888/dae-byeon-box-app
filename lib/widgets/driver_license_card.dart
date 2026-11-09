@@ -94,7 +94,9 @@ class _DriverLicenseCardState extends ConsumerState<DriverLicenseCard> {
     messenger.showSnackBar(SnackBar(
       content: Text(readCount == 0
           ? '면허증 글자를 읽지 못했습니다. 밝은 곳에서 면허증이 화면에 꽉 차게 다시 찍거나 직접 입력해 주세요.'
-          : '면허증에서 $readCount개 항목을 읽었습니다. 확인 후 저장해 주세요.'),
+          : kOcrReadsKorean
+              ? '면허증에서 $readCount개 항목을 읽었습니다. 확인 후 저장해 주세요.'
+              : '면허번호·기간 등 $readCount개 항목을 읽었습니다. 이름과 면허 종류는 직접 입력해 주세요.'),
     ));
     await _edit(merged);
   }

@@ -5,7 +5,6 @@
 //   예시: 장마철 빗길 수막현상, 겨울철 블랙아이스 위험도
 
 import 'package:flutter/material.dart';
-import '../utils/theme.dart';
 
 class WeatherSafetyCard extends StatelessWidget {
   const WeatherSafetyCard({super.key});

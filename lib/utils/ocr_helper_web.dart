@@ -7,3 +7,6 @@ Future<String> recognizeKoreanText(String imagePath) async => '';
 
 /// 이 플랫폼에서 OCR 사용 가능 여부.
 const bool kOcrSupported = false;
+
+/// 웹에서는 한글 인식도 지원하지 않는다.
+bool get kOcrReadsKorean => false;
