@@ -59,6 +59,8 @@ class BackendCase {
     required this.createdAt,
     this.lat,
     this.lon,
+    this.demoMode = false,
+    this.fixedRoadPlace,
   });
 
   final String id;
@@ -68,6 +70,9 @@ class BackendCase {
   final DateTime createdAt;
   final double? lat;
   final double? lon;
+  final bool demoMode;
+  final int? fixedRoadPlace;
+  bool get isDemo => demoMode;
 
   factory BackendCase.fromJson(Map<String, dynamic> json) {
     final id = json['id'];
@@ -78,6 +83,14 @@ class BackendCase {
     final createdAt = createdAtRaw is String
         ? DateTime.tryParse(createdAtRaw)?.toUtc()
         : null;
+    final policy = json['road_policy'];
+    final fixedPlace =
+        policy is Map && policy['locked'] == true ? policy['place'] : null;
+    if (policy is Map &&
+        policy['locked'] == true &&
+        (fixedPlace is! int || fixedPlace < 0 || fixedPlace > 7)) {
+      throw const InvalidBackendCaseException('서버의 고정 도로유형 정보가 올바르지 않습니다.');
+    }
     if (id is! String ||
         !_backendCaseIdPattern.hasMatch(id) ||
         deviceId is! String ||
@@ -95,6 +108,74 @@ class BackendCase {
       createdAt: createdAt,
       lat: (json['lat'] as num?)?.toDouble(),
       lon: (json['lon'] as num?)?.toDouble(),
+      demoMode: json['demo_mode'] == true,
+      fixedRoadPlace: fixedPlace is int ? fixedPlace : null,
+    );
+  }
+}
+
+class BackendHardwareEvent {
+  const BackendHardwareEvent({
+    required this.eventId,
+    required this.deviceId,
+    required this.sourceDeviceId,
+    required this.deviceName,
+    required this.triggeredAt,
+    required this.source,
+    required this.isTestEvent,
+    this.impactG,
+    this.caseId,
+  });
+
+  final String eventId;
+  final String deviceId;
+  final String sourceDeviceId;
+  final String deviceName;
+  final DateTime triggeredAt;
+  final String source;
+  final bool isTestEvent;
+  final double? impactG;
+  final String? caseId;
+
+  factory BackendHardwareEvent.fromJson(Map<String, dynamic> json) {
+    final eventId = json['event_id'];
+    final deviceId = json['device_id'];
+    final sourceDeviceId = json['source_device_id'];
+    final deviceName = json['device_name'];
+    final triggeredAt = json['trigger_utc'];
+    final source = json['source'];
+    final parsedTime =
+        triggeredAt is String ? DateTime.tryParse(triggeredAt)?.toUtc() : null;
+    final impactRaw = json['impact_g'];
+    final caseId = json['case_id'];
+    if (eventId is! String ||
+        eventId.isEmpty ||
+        deviceId is! String ||
+        deviceId.isEmpty ||
+        sourceDeviceId is! String ||
+        sourceDeviceId.isEmpty ||
+        deviceName is! String ||
+        parsedTime == null ||
+        source is! String ||
+        (caseId != null && caseId is! String)) {
+      throw const CaseServiceException('충격 이벤트 응답이 올바르지 않습니다.');
+    }
+    final impactG = impactRaw is num &&
+            impactRaw.isFinite &&
+            impactRaw >= 0 &&
+            impactRaw <= 100
+        ? impactRaw.toDouble()
+        : null;
+    return BackendHardwareEvent(
+      eventId: eventId,
+      deviceId: deviceId,
+      sourceDeviceId: sourceDeviceId,
+      deviceName: deviceName,
+      triggeredAt: parsedTime,
+      source: source,
+      isTestEvent: json['test_event'] == true,
+      impactG: impactG,
+      caseId: caseId as String?,
     );
   }
 }
@@ -217,6 +298,45 @@ class CaseService {
     return parsed;
   }
 
+  /// Reads the latest hardware case without changing the active case.
+  Future<BackendCase?> peekLatestHardwareCase() async {
+    final response = await _authorizedRequest(
+      (token) => _dio.get(
+        '/api/v1/cases/latest-hardware',
+        options: Options(headers: _bearer(token)),
+      ),
+    );
+    if (response.statusCode != 200) {
+      throw CaseServiceException(
+        _apiMessage(response, '최신 블랙박스 영상을 확인할 수 없습니다.'),
+      );
+    }
+    final rawCase = _envelope(response)['case'];
+    return rawCase == null ? null : BackendCase.fromJson(_map(rawCase));
+  }
+
+  Future<List<BackendHardwareEvent>> peekRecentHardwareEvents() async {
+    final response = await _authorizedRequest(
+      (token) => _dio.get(
+        '/api/v1/hardware-events',
+        queryParameters: const {'limit': 20},
+        options: Options(headers: _bearer(token)),
+      ),
+    );
+    if (response.statusCode != 200) {
+      throw CaseServiceException(
+        _apiMessage(response, '블랙박스 충격 이벤트를 확인할 수 없습니다.'),
+      );
+    }
+    final rawEvents = _envelope(response)['events'];
+    if (rawEvents is! List) {
+      throw const CaseServiceException('충격 이벤트 목록 응답이 올바르지 않습니다.');
+    }
+    return rawEvents
+        .map((item) => BackendHardwareEvent.fromJson(_map(item)))
+        .toList(growable: false);
+  }
+
   Future<BackendCase> selectOwnedCase(String caseId) async {
     if (!isBackendCaseId(caseId)) {
       throw const InvalidBackendCaseException();
@@ -241,6 +361,32 @@ class CaseService {
     }
     _onActiveCaseChanged(parsed.id);
     return parsed;
+  }
+
+  Future<BackendCase?> findHardwareEventCase(String eventId, String deviceId,
+      {DateTime? triggeredAt}) async {
+    final response = await _authorizedRequest((token) => _dio.get(
+          '/api/v1/cases/by-event',
+          queryParameters: {
+            'device_id': deviceId,
+            'event_id': eventId,
+            if (triggeredAt != null)
+              'trigger_utc': triggeredAt.toUtc().toIso8601String()
+          },
+          options: Options(
+              headers: _bearer(token),
+              validateStatus: (status) => status != null && status < 500),
+        ));
+    if (response.statusCode == 404) return null;
+    if (response.statusCode != 200) {
+      throw CaseServiceException(
+          _apiMessage(response, '해당 충격의 사고 사건을 확인할 수 없습니다.'));
+    }
+    final result = BackendCase.fromJson(_dataMap(response, 'case'));
+    if (result.deviceId != deviceId) {
+      throw const InvalidBackendCaseException('충격 기기와 사고 사건의 기기가 일치하지 않습니다.');
+    }
+    return result;
   }
 
   Future<BackendCase> resolveForAccident({
@@ -305,11 +451,16 @@ class CaseService {
     return parsed;
   }
 
-  Future<CasePage> listCases({int limit = 20, String? cursor}) async {
+  Future<CasePage> listCases(
+      {int limit = 20, String? cursor, bool hasReports = false}) async {
     final response = await _authorizedRequest(
       (token) => _dio.get(
         '/api/v1/cases',
-        queryParameters: {'limit': limit, if (cursor != null) 'cursor': cursor},
+        queryParameters: {
+          'limit': limit,
+          if (cursor != null) 'cursor': cursor,
+          if (hasReports) 'has_reports': true
+        },
         options: Options(headers: _bearer(token)),
       ),
     );
@@ -359,6 +510,23 @@ class CaseService {
           .toList(growable: false),
       nextCursor: _optionalCursor(data['next_cursor']),
     );
+  }
+
+  Future<void> deleteReports(String caseId) async {
+    if (!isBackendCaseId(caseId)) throw const InvalidBackendCaseException();
+    final response = await _authorizedRequest((token) => _dio.delete(
+          '/api/v1/cases/$caseId/reports',
+          options: Options(headers: _bearer(token)),
+        ));
+    final data = response.statusCode == 200 ? _envelope(response) : null;
+    if (response.statusCode != 200 ||
+        data?['case_id'] != caseId ||
+        data?['status'] != 'reports_deleted' ||
+        data?['media_preserved'] != true) {
+      throw CaseServiceException(response.statusCode == 409
+          ? '분석 진행 중에는 기록을 삭제할 수 없습니다. 완료 후 다시 시도해 주세요.'
+          : _apiMessage(response, '분석 기록을 삭제하지 못했습니다.'));
+    }
   }
 
   Future<void> deleteCase(String caseId) async {

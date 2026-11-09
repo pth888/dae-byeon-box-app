@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -41,6 +42,115 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, null);
     }
+  });
+
+  testWidgets(
+      'MQTT without uploaded case advances to guide without device registration',
+      (tester) async {
+    final api = _IncidentApi();
+    final dio = Dio(BaseOptions(baseUrl: 'https://api.test'))
+      ..httpClientAdapter = api;
+    await tester.pumpWidget(ProviderScope(
+        overrides: [
+          authProvider.overrideWith((ref) => _SignedInAuth()),
+          consentControllerProvider
+              .overrideWith((ref) => _GrantedConsentController()),
+          locationProvider.overrideWith((ref) => _NoLocation()),
+          sensorProvider.overrideWith((ref) => _SeededSensor(ref)),
+          caseServiceProvider.overrideWith((ref) => CaseService(
+                dio: dio,
+                accessToken: () async => 'token',
+                savedDevice: () async => (id: null, name: null),
+                activeCase: () => null,
+                onActiveCaseChanged: (_) {},
+              )),
+        ],
+        child: Consumer(
+            builder: (_, ref, child) => MaterialApp.router(
+                routerConfig: ref.watch(appRouterProvider)))));
+    final container =
+        ProviderScope.containerOf(tester.element(find.byType(MaterialApp)));
+    final router = container.read(appRouterProvider);
+    await tester.pumpAndSettle();
+    router.goNamed('accident-detected', extra: {
+      'event_id': 'raw-shock-1',
+      'device_id': 'dev_a',
+      'device_name': 'Front',
+    });
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('네, 사고 났어요'));
+    await tester.pumpAndSettle();
+    expect(find.byType(FirstResponseScreen), findsOneWidget);
+    expect(find.text('마이페이지에서 본인 블랙박스 기기를 먼저 등록해 주세요.'), findsNothing);
+    expect(api.requests.where((r) => r.method == 'POST'), isEmpty);
+    expect(
+        tester
+            .widget<FirstResponseScreen>(find.byType(FirstResponseScreen))
+            .hardwareEventId,
+        'raw-shock-1');
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+      'pending incident retry resolves late case and never locks behind video polling',
+      (tester) async {
+    final api = _IncidentApi();
+    final dio = Dio(BaseOptions(baseUrl: 'https://api.test'))
+      ..httpClientAdapter = api;
+    final videos = _WaitingVideo(BackendEvidenceService(
+        apiDio: dio, storageDio: dio, accessToken: () async => 'token'));
+    await tester.pumpWidget(ProviderScope(
+        overrides: [
+          authProvider.overrideWith((ref) => _SignedInAuth()),
+          consentControllerProvider
+              .overrideWith((ref) => _GrantedConsentController()),
+          locationProvider.overrideWith((ref) => _NoLocation()),
+          sensorProvider.overrideWith((ref) => _SeededSensor(ref)),
+          blackboxVideoProvider.overrideWith((ref) => videos),
+          caseServiceProvider.overrideWith((ref) => CaseService(
+                dio: dio,
+                accessToken: () async => 'token',
+                savedDevice: () async => (id: null, name: null),
+                activeCase: () => null,
+                onActiveCaseChanged: (_) {},
+              )),
+        ],
+        child: Consumer(
+            builder: (_, ref, child) => MaterialApp.router(
+                routerConfig: ref.watch(appRouterProvider)))));
+    final container =
+        ProviderScope.containerOf(tester.element(find.byType(MaterialApp)));
+    final router = container.read(appRouterProvider);
+    await tester.pumpAndSettle();
+    router.goNamed('first-response', extra: {
+      'hardware_event_id': '20261108_030000Z',
+      'hardware_device_id': 'dev_a',
+      'initial_video_step': true,
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('사고 영상 등록 대기 중'), findsOneWidget);
+    expect(api.requests.where((r) => r.path == '/api/v1/cases/'), isEmpty);
+    final before =
+        api.requests.where((r) => r.path.endsWith('/by-event')).length;
+    await tester.tap(find.text('다시 확인'));
+    await tester.pumpAndSettle();
+    expect(api.requests.where((r) => r.path.endsWith('/by-event')).length,
+        before + 1);
+    api.hardwareCaseReady = true;
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(videos.requested, [_caseA]);
+    expect(find.text('원본 영상 준비 대기 중'), findsOneWidget);
+    await tester.tap(find.text('다시 확인'));
+    await tester.pumpAndSettle();
+    expect(videos.requested, [_caseA, _caseA]);
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(videos.cancelled, contains(_caseA));
+    final count = api.requests.length;
+    await tester.pump(const Duration(seconds: 10));
+    expect(api.requests.length, count);
+    videos.finish();
+    await tester.pump();
   });
 
   for (final acceptPush in [true, false]) {
@@ -105,12 +215,10 @@ void main() {
           );
           await tester.pumpAndSettle();
           await push;
+          expect(find.text('충격 강도 측정값 없음'), findsOneWidget);
           await tester.tap(find.text('네, 사고 났어요'));
           await tester.pumpAndSettle();
           expect(container.read(sensorProvider).caseId, isNull);
-          await tester.tap(find.text('지금 시작'));
-          await tester.pumpAndSettle();
-
           expect(
             tester
                 .widget<FirstResponseScreen>(find.byType(FirstResponseScreen))
@@ -128,7 +236,7 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('영상 없이 새 사고 접수'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('지금 시작'));
+        await tester.tap(find.text('네, 사고 났어요'));
         await tester.pumpAndSettle();
 
         expect(
@@ -160,6 +268,34 @@ void main() {
 
 const _caseA = 'case_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const _caseB = 'case_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+class _WaitingVideo extends BlackboxVideoNotifier {
+  _WaitingVideo(BackendEvidenceService evidence)
+      : super(
+            evidenceService: evidence,
+            ensureOwnedCase: (_) async {},
+            principal: () => 'driver@example.com');
+  final requested = <String>[];
+  final cancelled = <String>[];
+  final pending = <Completer<void>>[];
+  @override
+  Future<void> fetchAndDownload(String id) {
+    requested.add(id);
+    state = BlackboxVideoState(caseId: id, status: VideoStatus.waiting);
+    final completer = Completer<void>();
+    pending.add(completer);
+    return completer.future;
+  }
+
+  @override
+  void Function() cancellationHandleForCase(String id) =>
+      () => cancelled.add(id);
+  void finish() {
+    for (final completer in pending) {
+      if (!completer.isCompleted) completer.complete();
+    }
+  }
+}
 
 class _SignedInAuth extends AuthNotifier {
   _SignedInAuth()
@@ -209,11 +345,44 @@ class _SeededSensor extends SensorNotifier {
 
 class _IncidentApi implements HttpClientAdapter {
   final requests = <RequestOptions>[];
+  bool hardwareCaseReady = false;
 
   @override
   Future<ResponseBody> fetch(RequestOptions options,
       Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
     requests.add(options);
+    if (options.path == '/api/v1/cases/by-event') {
+      return ResponseBody.fromString(
+          jsonEncode(hardwareCaseReady
+              ? {
+                  'data': {
+                    'case': {
+                      'id': _caseA,
+                      'device_id': 'dev_a',
+                      'title': 'Hardware incident',
+                      'status': 'created',
+                      'created_at': '2026-11-08T03:00:00Z'
+                    }
+                  }
+                }
+              : {
+                  'error': {'code': 'not_found', 'message': 'case not found'}
+                }),
+          hardwareCaseReady ? 200 : 404,
+          headers: {
+            Headers.contentTypeHeader: [Headers.jsonContentType]
+          });
+    }
+    if (options.path == '/api/v1/hardware-events') {
+      return ResponseBody.fromString(
+          jsonEncode({
+            'data': {'events': []}
+          }),
+          200,
+          headers: {
+            Headers.contentTypeHeader: [Headers.jsonContentType]
+          });
+    }
     if (options.path == '/api/v1/cases/latest-hardware') {
       return ResponseBody.fromString(
         jsonEncode({

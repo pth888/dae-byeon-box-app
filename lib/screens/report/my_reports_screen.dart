@@ -10,14 +10,14 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../services/auth_service.dart';
-import '../../services/blackbox_video_service.dart';
 import '../../services/case_service.dart';
-import '../../services/local_files.dart';
 import '../../services/model_analysis_service.dart';
 import '../../utils/theme.dart';
 
 class MyReportsScreen extends ConsumerStatefulWidget {
-  const MyReportsScreen({super.key});
+  const MyReportsScreen({super.key, this.initialCaseId});
+
+  final String? initialCaseId;
 
   @override
   ConsumerState<MyReportsScreen> createState() => _MyReportsScreenState();
@@ -74,6 +74,7 @@ class _MyReportsScreenState extends ConsumerState<MyReportsScreen> {
     try {
       final page = await ref.read(caseServiceProvider).listCases(
             cursor: reset ? null : _caseCursor,
+            hasReports: true,
           );
       if (!_isCurrent(generation, principal)) return;
       setState(() {
@@ -81,6 +82,12 @@ class _MyReportsScreenState extends ConsumerState<MyReportsScreen> {
         _caseCursor = page.nextCursor;
         _loadingCases = false;
       });
+      final initialCase = widget.initialCaseId == null
+          ? null
+          : page.items
+              .where((item) => item.id == widget.initialCaseId)
+              .firstOrNull;
+      if (initialCase != null) _loadCloudReports(initialCase);
     } catch (error) {
       if (!_isCurrent(generation, principal)) return;
       setState(() {
@@ -131,7 +138,7 @@ class _MyReportsScreenState extends ConsumerState<MyReportsScreen> {
         title: const Text('분석 기록 삭제',
             style: TextStyle(color: Colors.white, fontSize: 16)),
         content: const Text(
-          '서버의 사고, 증거 파일, 분석 리포트 삭제를 요청합니다.',
+          '이 사고의 분석 결과와 리포트만 삭제합니다. 사고 영상·사진·GPS와 사건 정보는 유지됩니다.',
           style: TextStyle(color: AppTheme.textSub, fontSize: 13, height: 1.5),
         ),
         actions: [
@@ -148,16 +155,12 @@ class _MyReportsScreenState extends ConsumerState<MyReportsScreen> {
       ),
     );
     if (ok != true || !_isCurrent(generation, principal)) return;
-    final cancelVideo = ref
-        .read(blackboxVideoProvider.notifier)
-        .cancellationHandleForCase(backendCase.id);
     try {
-      await ref.read(caseServiceProvider).deleteCase(backendCase.id);
+      await ref.read(caseServiceProvider).deleteReports(backendCase.id);
     } catch (error) {
       if (_isCurrent(generation, principal)) _showMessage(error.toString());
       return;
     }
-    cancelVideo();
     if (_isPrincipalCurrent(principal)) {
       setState(() {
         ++_generation;
@@ -168,16 +171,8 @@ class _MyReportsScreenState extends ConsumerState<MyReportsScreen> {
         _loadingCases = false;
       });
     }
-    String? cleanupWarning;
-    try {
-      await cleanupLocalCaseFiles(backendCase.id);
-    } catch (_) {
-      cleanupWarning = '일부 로컬 영상·사진을 정리하지 못했습니다.';
-    }
     if (_isPrincipalCurrent(principal)) {
-      _showMessage(cleanupWarning == null
-          ? '삭제 요청이 접수되었습니다.'
-          : '삭제 요청은 접수되었습니다. $cleanupWarning');
+      _showMessage('분석 기록을 삭제했습니다. 사고 영상은 유지됩니다.');
     }
   }
 
@@ -304,68 +299,73 @@ class _MyReportsScreenState extends ConsumerState<MyReportsScreen> {
         border: Border.all(color: const Color(0xFF2A2A2E)),
         borderRadius: BorderRadius.circular(14),
       ),
-      child: Theme(
-        // ExpansionTile 기본 구분선 제거
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          key: ValueKey('$_generation:${backendCase.id}'),
-          tilePadding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
-          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          iconColor: Colors.white,
-          collapsedIconColor: AppTheme.textHint,
-          onExpansionChanged: (expanded) {
-            if (expanded && reports == null) _loadCloudReports(backendCase);
-          },
-          leading: const Icon(Icons.description_outlined, color: Colors.white),
-          title: Text(
-            backendCase.title.isEmpty ? '사고 분석' : backendCase.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white, fontSize: 14),
-          ),
-          subtitle: Text(
-            _formatDate(backendCase.createdAt),
-            style: const TextStyle(color: AppTheme.textHint, fontSize: 11),
-          ),
-          children: [
-            if (loading && reports == null)
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else if (reports == null || reports.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text('아직 분석 결과가 없습니다.',
-                    style: TextStyle(color: AppTheme.textHint, fontSize: 12)),
-              )
-            else ...[
-              _buildSummary(backendCase, reports.first),
-              const SizedBox(height: 12),
-              ...reports.map((report) => _buildPdfRow(
-                    backendCase,
-                    report,
-                    showVersion: reports.length > 1,
-                  )),
-            ],
-            if (_reportCursors[backendCase.id] != null)
-              TextButton(
-                onPressed: loading
-                    ? null
-                    : () => _loadCloudReports(backendCase, more: true),
-                child: const Text('이전 리포트 더 불러오기'),
-              ),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: () => _deleteCloudCase(backendCase),
-                icon: const Icon(Icons.delete_outline,
-                    size: 16, color: AppTheme.textHint),
-                label: const Text('기록 삭제',
-                    style: TextStyle(color: AppTheme.textHint, fontSize: 12)),
-              ),
+      child: Material(
+        color: Colors.transparent,
+        child: Theme(
+          // ExpansionTile 기본 구분선 제거
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            key: ValueKey('$_generation:${backendCase.id}'),
+            initiallyExpanded: backendCase.id == widget.initialCaseId,
+            tilePadding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            iconColor: Colors.white,
+            collapsedIconColor: AppTheme.textHint,
+            onExpansionChanged: (expanded) {
+              if (expanded && reports == null) _loadCloudReports(backendCase);
+            },
+            leading:
+                const Icon(Icons.description_outlined, color: Colors.white),
+            title: Text(
+              backendCase.title.isEmpty ? '사고 분석' : backendCase.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontSize: 14),
             ),
-          ],
+            subtitle: Text(
+              _formatDate(backendCase.createdAt),
+              style: const TextStyle(color: AppTheme.textHint, fontSize: 11),
+            ),
+            children: [
+              if (loading && reports == null)
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else if (reports == null || reports.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text('아직 분석 결과가 없습니다.',
+                      style: TextStyle(color: AppTheme.textHint, fontSize: 12)),
+                )
+              else ...[
+                _buildSummary(backendCase, reports.first),
+                const SizedBox(height: 12),
+                ...reports.map((report) => _buildPdfRow(
+                      backendCase,
+                      report,
+                      showVersion: reports.length > 1,
+                    )),
+              ],
+              if (_reportCursors[backendCase.id] != null)
+                TextButton(
+                  onPressed: loading
+                      ? null
+                      : () => _loadCloudReports(backendCase, more: true),
+                  child: const Text('이전 리포트 더 불러오기'),
+                ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => _deleteCloudCase(backendCase),
+                  icon: const Icon(Icons.delete_outline,
+                      size: 16, color: AppTheme.textHint),
+                  label: const Text('기록 삭제',
+                      style: TextStyle(color: AppTheme.textHint, fontSize: 12)),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -412,8 +412,7 @@ class _MyReportsScreenState extends ConsumerState<MyReportsScreen> {
                 '${weather.condition} · ${weather.temperatureC.toStringAsFixed(1)}°C'),
           if (summary?.speedDemo != null)
             _row('참고 속도', '${summary!.speedDemo!.valueKmh} km/h'),
-          _row('법령·판례',
-              summary?.lawAvailable == true ? '근거 포함' : '근거 없음'),
+          _row('법령·판례', summary?.lawAvailable == true ? '근거 포함' : '근거 없음'),
           _row('분석일', _formatDate(report.createdAt)),
           if (report.text.trim().isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -471,8 +470,7 @@ class _MyReportsScreenState extends ConsumerState<MyReportsScreen> {
     BackendReport report, {
     required bool showVersion,
   }) {
-    final name =
-        showVersion ? '분석 리포트_v${report.version}.pdf' : '분석 리포트.pdf';
+    final name = showVersion ? '분석 리포트_v${report.version}.pdf' : '분석 리포트.pdf';
     return GestureDetector(
       onTap: () => _openReport(backendCase, report),
       behavior: HitTestBehavior.opaque,

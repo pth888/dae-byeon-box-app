@@ -95,6 +95,47 @@ void main() {
     expect(find.text('response:$caseB:true'), findsOneWidget);
   });
 
+  testWidgets('fresh MQTT shock opens the accident countdown immediately',
+      (tester) async {
+    final service = _FakeCaseService();
+    final router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        GoRoute(path: '/', builder: (_, __) => const MainPage()),
+        GoRoute(
+          path: '/accident-detected',
+          name: 'accident-detected',
+          builder: (_, state) {
+            final event = state.extra as Map<String, dynamic>;
+            return Text(
+              'countdown:${event['case_id']}:${event['impact_g']}:${event['device_name']}',
+            );
+          },
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(_testApp(service: service, router: router));
+    await tester.pumpAndSettle();
+    service.hardwareEvents.add(BackendHardwareEvent(
+      eventId: 'shock-live-1',
+      deviceId: 'dev_owned',
+      sourceDeviceId: 'violet-dashcam-1',
+      deviceName: '전방 블랙박스',
+      triggeredAt: DateTime.now().toUtc(),
+      source: 'adxl345',
+      isTestEvent: false,
+      impactG: 1.8,
+    ));
+
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(find.text('countdown:null:1.8:전방 블랙박스'), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+  });
+
   testWidgets(
       'manual entry offers the owned latest video and opens its countdown',
       (tester) async {
@@ -482,6 +523,7 @@ class _FakeCaseService extends CaseService {
   final Future<BackendCase>? ownedFuture;
   final Object? ownedError;
   int latestCalls = 0;
+  final List<BackendHardwareEvent> hardwareEvents = [];
 
   @override
   Future<BackendCase?> selectLatestHardwareCase() async {
@@ -490,6 +532,10 @@ class _FakeCaseService extends CaseService {
     if (latestFuture != null) return latestFuture!;
     return latest;
   }
+
+  @override
+  Future<List<BackendHardwareEvent>> peekRecentHardwareEvents() async =>
+      List<BackendHardwareEvent>.unmodifiable(hardwareEvents);
 
   @override
   Future<BackendCase> selectOwnedCase(String caseId) async {

@@ -1,18 +1,18 @@
-import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../services/auth_service.dart';
 import '../../services/blackbox_video_service.dart';
+import '../../services/case_service.dart';
 import '../../services/consent_service.dart';
 import '../../services/device_service.dart';
 import '../../services/local_files.dart';
 import '../../services/map_service.dart';
-import '../../services/accident_type_catalog.dart';
 import '../../services/model_analysis_service.dart';
 import '../../services/pdf_report_service.dart';
 import '../../utils/theme.dart';
@@ -26,7 +26,6 @@ class AnalysisScreen extends ConsumerStatefulWidget {
     super.key,
     required this.accidentId,
     this.analysisService,
-    this.roadDebounce = const Duration(milliseconds: 300),
     this.initialJobId,
     this.initialReportId,
     this.initialError,
@@ -34,7 +33,6 @@ class AnalysisScreen extends ConsumerStatefulWidget {
 
   final String accidentId;
   final ModelAnalysisService? analysisService;
-  final Duration roadDebounce;
   final String? initialJobId;
   final String? initialReportId;
   final String? initialError;
@@ -50,6 +48,8 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
   AnalysisPhase _phase = AnalysisPhase.resolving;
   ModelAnalysisReport? _report;
   String? _caseId;
+  bool _caseIsDemo = false;
+  int? _lockedRoadPlace;
   String? _errorMessage;
   int? _selectedPlace;
   String? _selectedAction;
@@ -59,11 +59,9 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
   bool _reportIsPrevious = false;
   bool _isExportingPdf = false;
   bool _extrasExpanded = false;
-  bool _reanalyzePending = false;
   int _roadRevision = 0;
   // 시간 초과됐지만 서버에서 계속 진행 중일 수 있는 분석 작업 ID
   String? _timedOutJobId;
-  Timer? _roadDebounceTimer;
   final _egoMovementController = TextEditingController();
   final _otherMovementController = TextEditingController();
 
@@ -103,12 +101,12 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
       return;
     }
 
-    _roadDebounceTimer?.cancel();
-    _roadDebounceTimer = null;
     _requestTracker.begin();
     _phase = AnalysisPhase.resolving;
     _report = null;
     _caseId = null;
+    _caseIsDemo = false;
+    _lockedRoadPlace = null;
     _errorMessage = null;
     _selectedPlace = null;
     _selectedAction = null;
@@ -118,7 +116,6 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     _reportIsPrevious = false;
     _isExportingPdf = false;
     _extrasExpanded = false;
-    _reanalyzePending = false;
     _roadRevision = 0;
     _timedOutJobId = null;
     _egoMovementController.clear();
@@ -129,7 +126,6 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
 
   @override
   void dispose() {
-    _roadDebounceTimer?.cancel();
     _egoMovementController.dispose();
     _otherMovementController.dispose();
     super.dispose();
@@ -137,22 +133,36 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
 
   Future<void> _initialize() async {
     final request = _requestTracker.begin();
+    final accidentId = widget.accidentId;
     try {
-      final directCase =
-          ModelAnalysisService.isBackendCaseId(widget.accidentId);
+      final directCase = ModelAnalysisService.isBackendCaseId(accidentId);
       final savedDevice = directCase
           ? (id: null, name: null)
           : await ref.read(deviceServiceProvider).savedDevice();
+      if (!mounted || !_requestTracker.isLatest(request)) return;
       final selectedEvent =
           directCase ? null : ref.read(blackboxVideoProvider).event;
       final caseId = await _analysisService.resolveCaseId(
-        accidentId: widget.accidentId,
+        accidentId: accidentId,
         registeredDeviceId: savedDevice.id,
         selectedHardwareEventId: selectedEvent?.eventId,
       );
       if (!mounted || !_requestTracker.isLatest(request)) return;
+      final backendCase =
+          await ref.read(caseServiceProvider).selectOwnedCase(caseId);
+      if (!mounted || !_requestTracker.isLatest(request)) return;
+      if (backendCase.id != caseId) {
+        throw const InvalidBackendCaseException();
+      }
       setState(() {
         _caseId = caseId;
+        _caseIsDemo = backendCase.isDemo;
+        _lockedRoadPlace =
+            backendCase.fixedRoadPlace ?? (_caseIsDemo ? 5 : null);
+        if (_lockedRoadPlace != null) {
+          _selectedPlace = _lockedRoadPlace;
+          _selectedAction = null;
+        }
         _phase = AnalysisPhase.ready;
         _isAnalyzing =
             widget.initialJobId != null || widget.initialError == null;
@@ -169,7 +179,10 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
               expectedReportId: widget.initialReportId,
             )
           : widget.initialReportId == null
-              ? await _analysisService.requestAnalysis(caseId: caseId)
+              ? await _analysisService.requestAnalysis(
+                  caseId: caseId,
+                  place: _lockedRoadPlace,
+                )
               : await _analysisService.loadReport(
                   caseId,
                   widget.initialReportId!,
@@ -184,7 +197,6 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
             : _friendlyErrorMessage(widget.initialError);
         _isAnalyzing = false;
       });
-      _runPendingAnalysis();
     } on Object catch (error) {
       if (!mounted || !_requestTracker.isLatest(request)) return;
       setState(() {
@@ -251,6 +263,8 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
   }
 
   void _changeRoad(int place, String? action) {
+    if (_isAnalyzing || (_lockedRoadPlace != null && place != _lockedRoadPlace))
+      return;
     setState(() {
       _roadRevision++;
       _selectedPlace = place;
@@ -258,8 +272,6 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
       _roadWasUserSelected = true;
       _reportIsPrevious = _report != null;
     });
-    _roadDebounceTimer?.cancel();
-    _roadDebounceTimer = Timer(widget.roadDebounce, _reanalyze);
   }
 
   ({Map<String, bool> facts, List<String> keywords}) _feedbackPayload() {
@@ -294,10 +306,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
   Future<void> _reanalyze() async {
     final caseId = _caseId;
     final place = _selectedPlace;
-    if (_isAnalyzing) {
-      _reanalyzePending = true;
-      return;
-    }
+    if (_isAnalyzing) return;
     if (caseId == null) {
       _showMessage('연결된 분석 케이스가 없어 재분석할 수 없습니다.');
       return;
@@ -337,7 +346,6 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
       });
       _showMessage(
           report.hasRates ? '실제 모델 재분석이 완료되었습니다.' : '재분석 결과를 확인해 주세요.');
-      _runPendingAnalysis();
     } on Object catch (error) {
       if (!mounted || !_requestTracker.isLatest(request)) return;
       setState(() {
@@ -346,21 +354,16 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
             error is AnalysisJobTimeoutException ? error.jobId : null;
         _isAnalyzing = false;
       });
-      _runPendingAnalysis();
     }
   }
 
   void _applyReportedRoad(CaseRoadSelection road) {
-    _selectedPlace = road.place;
-    _selectedAction = road.otherAction;
+    // Historical reports cannot replace the server's fixed expert selection.
+    _selectedPlace = _lockedRoadPlace ?? road.place;
+    _selectedAction =
+        _selectedPlace == 1 || _selectedPlace == 6 ? road.otherAction : null;
     _automaticRoadStatus = road.automaticStatus;
     _roadWasUserSelected = road.isUserSelected;
-  }
-
-  void _runPendingAnalysis() {
-    if (!_reanalyzePending || !mounted) return;
-    _reanalyzePending = false;
-    scheduleMicrotask(_reanalyze);
   }
 
   void _showMessage(String message) {
@@ -514,20 +517,38 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
       return;
     }
     if (_isExportingPdf) return;
+    final auth = ref.read(authProvider.notifier);
+    final owner = authenticatedPrincipal(ref.read(authProvider));
+    final email = ref.read(authProvider).email;
+    final session = auth.sessionGeneration;
+    final cleanup = LocalAppFiles.accountCleanupGeneration;
+    bool current() =>
+        mounted &&
+        owner != null &&
+        auth.sessionGeneration == session &&
+        authenticatedPrincipal(ref.read(authProvider)) == owner &&
+        LocalAppFiles.accountCleanupGeneration == cleanup &&
+        _caseId == caseId &&
+        identical(_report, report) &&
+        !_reportIsPrevious;
+    if (owner == null || email == null || email.isEmpty) {
+      _showMessage('PDF 저장에는 로그인 사용자 정보가 필요합니다.');
+      return;
+    }
     setState(() => _isExportingPdf = true);
     try {
-      final data = await _buildReportData(report, caseId);
-      final email = ref.read(authProvider).email;
-      if (email == null || email.isEmpty) {
-        throw StateError('PDF 저장에는 로그인 사용자 정보가 필요합니다.');
+      final data = await _buildReportData(report, caseId, isCurrent: current);
+      if (!current()) return;
+      if (!kIsWeb) {
+        await PdfReportService.saveToLocal(
+          data,
+          ownerScope: LocalAppFiles.ownerScope(email),
+        );
       }
-      await PdfReportService.saveToLocal(
-        data,
-        ownerScope: LocalAppFiles.ownerScope(email),
-      );
+      if (!current()) return;
       await PdfReportService.generateAndShare(data);
     } on Object catch (error) {
-      _showMessage('PDF 생성 오류: $error');
+      if (current()) _showMessage('PDF 생성 오류: $error');
     } finally {
       if (mounted) setState(() => _isExportingPdf = false);
     }
@@ -544,10 +565,18 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     'lane_change': '회전교차로 안에서 차로를 바꾸는 중',
   };
 
+  static const _fileKindLabels = <String, String>{
+    'original_video': '원본 블랙박스 영상',
+    'video': '추가 영상',
+    'photo': '현장 사진',
+    'image': '현장 사진',
+  };
+
   Future<ReportData> _buildReportData(
     ModelAnalysisReport report,
-    String caseId,
-  ) async {
+    String caseId, {
+    required bool Function() isCurrent,
+  }) async {
     final analysis = report.analysis;
     final model = _asMap(analysis['model']);
     final prediction = _asMap(model?['prediction']);
@@ -561,14 +590,13 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
         final v = values[i];
         final p = probs[i];
         if (v is num && p is num) {
-          ratioCandidates.add(
-              ReportRatioCandidate(ourPct: v.toInt(), prob: p.toDouble()));
+          ratioCandidates
+              .add(ReportRatioCandidate(ourPct: v.toInt(), prob: p.toDouble()));
         }
       }
     }
 
-    // 사고 유형 후보 (번호 → 인정기준표 설명)
-    final typeCatalog = await AccidentTypeCatalog.load();
+    // 사고 유형 후보
     final typeCandidates = <ReportTypeCandidate>[];
     final topk = prediction?['type_topk'];
     if (topk is List) {
@@ -577,18 +605,13 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
         final code = m?['code'];
         final prob = m?['prob'];
         if (code is num && prob is num) {
-          final info = typeCatalog[code.toInt()];
-          final serverDescription = m?['description'];
+          final description = m?['description'];
           typeCandidates.add(ReportTypeCandidate(
             code: code.toInt(),
             prob: prob.toDouble(),
-            description: info?.title ??
-                (serverDescription is String && serverDescription.isNotEmpty
-                    ? serverDescription
-                    : null),
-            detail: info?.detail,
-            baseOurPct: info?.baseOurPct,
-            baseOtherPct: info?.baseOtherPct,
+            description: description is String && description.isNotEmpty
+                ? description
+                : null,
           ));
         }
       }
@@ -599,8 +622,10 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     double? fps;
     final clip = _asMap(prediction?['clip']);
     final window = clip?['window_ms'];
-    if (window is List && window.length == 2 &&
-        window[0] is num && window[1] is num) {
+    if (window is List &&
+        window.length == 2 &&
+        window[0] is num &&
+        window[1] is num) {
       clipStart = (window[0] as num).toInt();
       clipEnd = (window[1] as num).toInt();
       final fpsValue = clip?['fps'];
@@ -641,13 +666,13 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     } on Object {
       // 지도는 없어도 리포트를 만든다.
     }
+    if (!isCurrent()) throw StateError('PDF export superseded');
 
     // 도로·상대 움직임
     final place = report.road.place;
-    final placeLabel =
-        place != null && place >= 0 && place < roadLabels.length
-            ? roadLabels[place]
-            : null;
+    final placeLabel = place != null && place >= 0 && place < roadLabels.length
+        ? roadLabels[place]
+        : null;
     final action = report.road.otherAction;
     final actionLabel = action == null || action == 'unknown'
         ? null
@@ -682,6 +707,26 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
       }
     }
 
+    // 증거 파일 (원본 영상 고유값)
+    final evidenceFiles = <ReportEvidenceFile>[];
+    try {
+      final files =
+          await ref.read(backendEvidenceServiceProvider).listCaseFiles(caseId);
+      for (final file in files) {
+        final label = _fileKindLabels[file.kind];
+        if (label == null) continue;
+        evidenceFiles.add(ReportEvidenceFile(
+          label: label,
+          sha256: file.sha256,
+          sizeBytes: file.size,
+          receivedAt: file.createdAt,
+        ));
+      }
+    } on Object {
+      // 파일 목록을 못 받아도 리포트는 만든다.
+    }
+    if (!isCurrent()) throw StateError('PDF export superseded');
+
     // 법령·판례: 쟁점별로 묶고, 쟁점 안에서는 조문 → 판례 순서
     final law = LawReportResult.fromAnalysis(analysis);
     final grouped = <String, List<LawReference>>{};
@@ -690,8 +735,8 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     }
     final issues = <ReportIssue>[];
     grouped.forEach((issueType, refs) {
-      refs.sort((a, b) => (a.kind == 'statute' ? 0 : 1)
-          .compareTo(b.kind == 'statute' ? 0 : 1));
+      refs.sort((a, b) =>
+          (a.kind == 'statute' ? 0 : 1).compareTo(b.kind == 'statute' ? 0 : 1));
       final label = law.issues
               .where((issue) => issue.issueType == issueType)
               .map((issue) => issue.label)
@@ -774,6 +819,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
       egoMovement: _egoMovementController.text.trim(),
       otherMovement: _otherMovementController.text.trim(),
       statements: statements,
+      evidenceFiles: evidenceFiles,
       lawKeywords: law.keywords,
       issues: issues,
       lawStatusNote: lawStatusNote,
@@ -790,7 +836,6 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     return _phase == AnalysisPhase.ready &&
         !_isAnalyzing &&
         !_reportIsPrevious &&
-        _roadDebounceTimer?.isActive != true &&
         report != null &&
         report.hasRates &&
         _caseId == report.caseId;
@@ -902,8 +947,8 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
               selectedPlace: _selectedPlace,
               selectedAction: _selectedAction,
               onChanged: _changeRoad,
-              // 분석 중에는 도로유형을 잠가 재분석 요청이 겹치지 않게 한다.
-              isBusy: _isAnalyzing,
+              isBusy: _isAnalyzing || (_caseIsDemo && _lockedRoadPlace == 5),
+              roadLocked: _lockedRoadPlace != null,
             ),
           ),
           const SizedBox(height: 32),
@@ -933,25 +978,49 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.refresh_rounded),
-              label: Text(_isAnalyzing ? '모델 분석 중' : '추가 정황 반영하여 재분석'),
+              label: Text(_isAnalyzing ? '모델 분석 중' : '입력 내용으로 다시 분석'),
             ),
           ),
-          if (_report != null && !_isAnalyzing) ...[
+          if (_report != null) ...[
             const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () {
-                  if (context.canPop()) {
-                    context.pop();
-                  } else {
-                    context.goNamed('accident-videos');
-                  }
-                },
-                icon: const Icon(Icons.video_library_outlined),
-                label: const Text('분석 완료하고 돌아가기'),
+            if (_isAnalyzing)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () =>
+                      context.canPop() ? context.pop() : context.go('/'),
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  label: const Text('현재 결과로 계속하기'),
+                ),
+              )
+            else ...[
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _canExportPdf
+                      ? () => context.pushNamed('my-reports', extra: _caseId)
+                      : null,
+                  icon: const Icon(Icons.description_outlined),
+                  label: const Text('리포트 작성'),
+                ),
               ),
-            ),
+              if (!_canExportPdf) ...[
+                const SizedBox(height: 6),
+                const Text(
+                  '완료된 분석 결과가 있을 때 리포트를 만들 수 있습니다.',
+                  style: TextStyle(color: AppTheme.textHint, fontSize: 12),
+                ),
+              ],
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => context.go('/'),
+                  icon: const Icon(Icons.home_outlined),
+                  label: const Text('홈으로 돌아가기'),
+                ),
+              ),
+            ],
           ],
         ],
       ),
@@ -959,6 +1028,10 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
   }
 
   String _roadStatusText() {
+    if (_caseIsDemo && _lockedRoadPlace == 5)
+      return '시연 사고는 주차장 모델로 분석합니다. 도로유형은 주차장으로 고정됩니다.';
+    if (_lockedRoadPlace case final place?)
+      return '이 영상은 ${roadLabels[place]} 전용 모델로 고정됩니다.';
     if (_roadWasUserSelected) return '저장된 사용자 선택을 불러왔습니다.';
     return switch (_automaticRoadStatus) {
       'estimated' => 'GPS 기반 자동 추정값입니다. 필요하면 수정해 주세요.',
@@ -1157,6 +1230,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     return TextField(
       controller: controller,
       enabled: !_isAnalyzing,
+      onChanged: (_) => _markReportStale(),
       maxLength: 500,
       minLines: 1,
       maxLines: 3,
@@ -1166,6 +1240,12 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
         border: const OutlineInputBorder(),
       ),
     );
+  }
+
+  void _markReportStale() {
+    if (_report != null && !_reportIsPrevious) {
+      setState(() => _reportIsPrevious = true);
+    }
   }
 
   Widget _statusBox({
@@ -1241,9 +1321,10 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                   title: Text(entry.key),
                   onChanged: _isAnalyzing
                       ? null
-                      : (value) => setState(
-                            () => _userFeedback[entry.key] = value ?? false,
-                          ),
+                      : (value) => setState(() {
+                            _userFeedback[entry.key] = value ?? false;
+                            _reportIsPrevious = _report != null;
+                          }),
                 );
               }).toList(),
             ),

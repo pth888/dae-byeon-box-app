@@ -24,24 +24,12 @@ void main() {
     final data = ReportData(
       accidentId: caseA,
       analyzedAt: analyzedAt,
+      address: '-',
+      weatherText: '',
       rateOurPct: 60,
       rateOtherPct: 40,
-      ratioCandidates: const [
-        ReportRatioCandidate(ourPct: 50, prob: 0.2),
-        ReportRatioCandidate(ourPct: 60, prob: 0.6),
-        ReportRatioCandidate(ourPct: 70, prob: 0.2),
-      ],
-      roadPlaceLabel: '신호교차로',
-      issues: const [
-        ReportIssue(label: '교차로 통행', refs: [
-          ReportLawRef(
-            title: '도로교통법 제25조',
-            isPrecedent: false,
-            fromVideo: true,
-            text: '조문 원문',
-          ),
-        ]),
-      ],
+      aiSummary: '검증된 분석',
+      lawStatusNote: '법령 검색 결과 없음',
     );
 
     final path = await PdfReportService.saveToLocal(

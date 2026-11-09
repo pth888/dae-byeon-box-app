@@ -94,6 +94,50 @@ void main() {
       }
     });
 
+    test('preserves the exact job id when polling reaches its limit', () async {
+      final adapter = QueueAdapter([
+        jsonResponse(202, {
+          'data': {
+            'job': {'id': 'job_still_running', 'case_id': _caseA}
+          }
+        }),
+        jsonResponse(200, {
+          'data': {
+            'job': {
+              'id': 'job_still_running',
+              'case_id': _caseA,
+              'kind': 'analysis',
+              'status': 'running',
+            },
+            'report': null,
+          }
+        }),
+      ]);
+      final dio = Dio(BaseOptions(baseUrl: 'http://example.test'))
+        ..httpClientAdapter = adapter;
+      final service = ModelAnalysisService(
+        dio: dio,
+        accessToken: () async => 'token',
+        pollInterval: Duration.zero,
+        maxPollAttempts: 1,
+      );
+
+      await expectLater(
+        service.requestAnalysis(caseId: _caseA, place: 4),
+        throwsA(
+          isA<AnalysisJobTimeoutException>().having(
+            (error) => error.jobId,
+            'jobId',
+            'job_still_running',
+          ),
+        ),
+      );
+      expect(
+        adapter.requests.last.path,
+        '/api/v1/cases/$_caseA/jobs/job_still_running',
+      );
+    });
+
     for (var road = 0; road < 8; road++) {
       test('road $road accepts no movements and no secondary answer', () async {
         final adapter = QueueAdapter([

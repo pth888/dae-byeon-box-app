@@ -8,6 +8,59 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('CaseService', () {
+    for (final linked in [false, true]) {
+      test('hardware event resolves exact device without local registration: $linked', () async {
+        final adapter = QueueAdapter([
+          linked ? jsonResponse(200, {'data': {'case': caseJson(caseA)}})
+              : jsonResponse(404, {'error': {'code': 'not_found', 'message': 'case not found'}}),
+        ]);
+        final service = serviceWith(adapter, savedDevice: () async => (id: null, name: null));
+        final result = await service.findHardwareEventCase('shock-1', 'dev_owned');
+        expect(result?.id, linked ? caseA : null);
+        expect(adapter.requests.every((r) => r.method == 'GET'), isTrue);
+        expect(adapter.requests.single.path, '/api/v1/cases/by-event');
+        expect(adapter.requests.single.queryParameters['device_id'], 'dev_owned');
+      });
+    }
+    test('peeks owned MQTT shock events without changing active case', () async {
+      final adapter = QueueAdapter([
+        jsonResponse(200, {
+          'data': {
+            'source_status': 'ok',
+            'events': [
+              {
+                'event_id': 'shock-123',
+                'device_id': 'dev_owned',
+                'source_device_id': 'violet-dashcam-1',
+                'device_name': 'Front dashcam',
+                'trigger_utc': '2026-11-07T08:00:00Z',
+                'source': 'adxl345',
+                'test_event': false,
+                'impact_g': 1.7,
+                'case_id': null,
+              },
+            ],
+          },
+        }),
+      ]);
+      String? active = caseB;
+      final service = serviceWith(
+        adapter,
+        activeCase: () => active,
+        onActiveCaseChanged: (id) => active = id,
+      );
+
+      final events = await service.peekRecentHardwareEvents();
+
+      expect(events, hasLength(1));
+      expect(events.single.eventId, 'shock-123');
+      expect(events.single.impactG, 1.7);
+      expect(events.single.caseId, isNull);
+      expect(active, caseB);
+      expect(adapter.requests.single.path, '/api/v1/hardware-events');
+      expect(adapter.requests.single.headers['Authorization'], 'Bearer token');
+    });
+
     test('latest hardware case returns and activates the exact server case',
         () async {
       final adapter = QueueAdapter([
@@ -55,6 +108,40 @@ void main() {
 
       await expectLater(
         service.selectLatestHardwareCase(),
+        throwsA(isA<CaseAuthenticationException>()),
+      );
+
+      expect(adapter.requests, isEmpty);
+    });
+
+    test('peeking latest hardware case does not change the active case',
+        () async {
+      final adapter = QueueAdapter([
+        jsonResponse(200, {
+          'data': {'case': caseJson(caseA)},
+        }),
+      ]);
+      String? active = caseB;
+      final service = serviceWith(
+        adapter,
+        activeCase: () => active,
+        onActiveCaseChanged: (id) => active = id,
+      );
+
+      final result = await service.peekLatestHardwareCase();
+
+      expect(result?.id, caseA);
+      expect(active, caseB);
+      expect(adapter.requests.single.path, '/api/v1/cases/latest-hardware');
+      expect(adapter.requests.single.headers['Authorization'], 'Bearer token');
+    });
+
+    test('peeking latest hardware case requires authentication', () async {
+      final adapter = QueueAdapter([]);
+      final service = serviceWith(adapter, accessToken: () async => null);
+
+      await expectLater(
+        service.peekLatestHardwareCase(),
         throwsA(isA<CaseAuthenticationException>()),
       );
 

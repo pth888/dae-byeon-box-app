@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -5,6 +6,7 @@ import '../services/auth_service.dart';
 import '../services/case_service.dart' show authenticatedPrincipal;
 import '../services/map_service.dart';
 import '../utils/theme.dart';
+import 'osm_embed.dart';
 
 const Key accidentMapFrameKey = Key('accident-location-map-frame');
 
@@ -13,10 +15,14 @@ class AccidentLocationMap extends ConsumerStatefulWidget {
     super.key,
     required this.caseId,
     this.service,
+    this.fallbackLatitude,
+    this.fallbackLongitude,
   });
 
   final String caseId;
   final MapService? service;
+  final double? fallbackLatitude;
+  final double? fallbackLongitude;
 
   @override
   ConsumerState<AccidentLocationMap> createState() =>
@@ -160,7 +166,10 @@ class _AccidentLocationMapState extends ConsumerState<AccidentLocationMap> {
             child: _buildFrame(),
           ),
         ),
-        if (_map != null) _buildMetadata(_map!),
+        if (_map != null)
+          _buildMetadata(_map!)
+        else if (_hasFallbackCoordinate)
+          _buildFallbackMetadata(),
       ],
     );
   }
@@ -181,7 +190,7 @@ class _AccidentLocationMapState extends ConsumerState<AccidentLocationMap> {
       );
     }
     if (_error != null) {
-      return _message(_error!, retry: true);
+      return _fallbackMap() ?? _message(_error!, retry: true);
     }
 
     final map = _map;
@@ -190,18 +199,67 @@ class _AccidentLocationMapState extends ConsumerState<AccidentLocationMap> {
       case AccidentMapStatus.ready:
         return _mapImage(map);
       case AccidentMapStatus.pending:
-        return _message('지도 이미지를 생성 중입니다', retry: true);
+        return _fallbackMap() ?? _message('지도 이미지를 생성 중입니다', retry: true);
       case AccidentMapStatus.noGps:
         return _message('위치 정보(GPS)가 없는 사고입니다');
       case AccidentMapStatus.unavailable:
-        return _message('지도를 불러올 수 없습니다', retry: true);
+        return _fallbackMap() ?? _message('지도를 불러올 수 없습니다', retry: true);
     }
   }
+
+  bool get _hasFallbackCoordinate {
+    final map = _map;
+    final latitude = map?.latitude ?? widget.fallbackLatitude;
+    final longitude = map?.longitude ?? widget.fallbackLongitude;
+    return latitude != null &&
+        longitude != null &&
+        latitude.isFinite &&
+        longitude.isFinite &&
+        latitude >= -90 &&
+        latitude <= 90 &&
+        longitude >= -180 &&
+        longitude <= 180;
+  }
+
+  Widget? _fallbackMap() {
+    if (!kIsWeb || !_hasFallbackCoordinate) return null;
+    final latitude = _map?.latitude ?? widget.fallbackLatitude!;
+    final longitude = _map?.longitude ?? widget.fallbackLongitude!;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        buildOsmEmbed(latitude, longitude),
+        const Positioned(
+          right: 6,
+          bottom: 4,
+          child: ColoredBox(
+            color: Colors.white70,
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              child: Text(
+                '지도 이미지 대체 보기 · © OpenStreetMap',
+                style: TextStyle(fontSize: 9, color: Colors.black87),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFallbackMetadata() => Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: Text(
+          '${widget.fallbackLatitude!.toStringAsFixed(6)}, '
+          '${widget.fallbackLongitude!.toStringAsFixed(6)} · GPS 좌표',
+          style: const TextStyle(color: AppTheme.textHint, fontSize: 11),
+        ),
+      );
 
   Widget _mapImage(AccidentMap map) {
     final imageBytes = map.imageBytes;
     if (imageBytes == null) {
-      return _message('지도를 불러올 수 없습니다', retry: true);
+      return _fallbackMap() ?? _message('지도를 불러올 수 없습니다', retry: true);
     }
     return Stack(
       fit: StackFit.expand,
@@ -211,7 +269,7 @@ class _AccidentLocationMapState extends ConsumerState<AccidentLocationMap> {
           fit: BoxFit.cover,
           gaplessPlayback: false,
           errorBuilder: (context, error, stackTrace) =>
-              _message('지도를 불러올 수 없습니다', retry: true),
+              _fallbackMap() ?? _message('지도를 불러올 수 없습니다', retry: true),
         ),
         Positioned(
           right: 6,

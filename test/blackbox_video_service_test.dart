@@ -211,6 +211,48 @@ void main() {
       ]);
       expect(storageAdapter.requests.single.headers['Authorization'], isNull);
     });
+
+    test('resolves a web playback URL without downloading video bytes', () async {
+      final apiAdapter = QueueAdapter([
+        jsonResponse(200, {
+          'data': {
+            'files': [
+              {
+                'id': 'file_original',
+                'case_id': caseA,
+                'kind': 'original_video',
+                'sha256': 'a' * 64,
+                'size': 4,
+                'mime': 'video/mp4',
+                'created_at': '2026-10-15T00:00:00Z',
+              },
+            ],
+            'next_cursor': null,
+          },
+        }),
+        jsonResponse(200, {
+          'data': {
+            'url': 'https://storage.test/video?signature=temporary',
+            'expires_in': 60,
+            'file_id': 'file_original',
+          },
+        }),
+      ]);
+      final storageAdapter = QueueAdapter([]);
+      final service = mediaService(apiAdapter, storageAdapter);
+
+      final url = (await service.originalVideoUrl(caseId: caseA)).url;
+
+      expect(url, 'https://storage.test/video?signature=temporary');
+      expect(apiAdapter.requests.map((request) => request.path), [
+        '/api/v1/cases/$caseA/files',
+        '/api/v1/cases/$caseA/files/file_original/access',
+      ]);
+      expect(storageAdapter.requests, isEmpty);
+      expect(apiAdapter.requests.every(
+        (request) => request.headers['Authorization'] == 'Bearer token',
+      ), isTrue);
+    });
   });
 
   group('BlackboxVideoNotifier', () {

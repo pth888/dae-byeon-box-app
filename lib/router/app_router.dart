@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../services/hardware_event_service.dart';
 import '../screens/home/main_page.dart';
 import '../screens/mypage/mypage_screen.dart';
 import '../screens/accident/accident_detection_screen.dart';
@@ -158,7 +157,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/my-reports',
             name: 'my-reports',
-            builder: (ctx, state) => const MyReportsScreen(),
+            builder: (ctx, state) => MyReportsScreen(
+              initialCaseId: state.extra as String?,
+            ),
           ),
 
           // ── 사고 감지 화면 (E-Call 가상화, 충격 감지) ─────────────
@@ -167,11 +168,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             name: 'accident-detected',
             builder: (ctx, state) {
               final extra = state.extra;
-              // 블랙박스 충격 알림이면 HardwareEvent, 휴대폰 센서면 사건 ID(String)
-              return AccidentDetectionScreen(
-                caseId: extra is String ? extra : null,
-                hardwareEvent: extra is HardwareEvent ? extra : null,
-              );
+              if (extra is Map) {
+                final triggeredAt = extra['triggered_at'];
+                return AccidentDetectionScreen(
+                  caseId: extra['case_id'] as String?,
+                  impactG: (extra['impact_g'] as num?)?.toDouble(),
+                  deviceName: extra['device_name'] as String?,
+                  eventId: extra['event_id'] as String?,
+                  deviceId: extra['device_id'] as String?,
+                  triggeredAt: triggeredAt is DateTime ? triggeredAt : null,
+                  isTestEvent: extra['test_event'] == true,
+                );
+              }
+              return AccidentDetectionScreen(caseId: extra as String?);
             },
           ),
 
@@ -186,17 +195,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   : extra as String? ?? '';
               final initialVideoStep = extra is Map<String, dynamic> &&
                   extra['initial_video_step'] == true;
-              final hardwareEvent = extra is Map<String, dynamic> &&
-                      extra['hardware_event'] is HardwareEvent
-                  ? extra['hardware_event'] as HardwareEvent
-                  : null;
               return FirstResponseScreen(
-                key: ValueKey(accidentId.isEmpty && hardwareEvent != null
-                    ? 'hw-${hardwareEvent.key}'
-                    : accidentId),
+                key: ValueKey(accidentId),
                 accidentId: accidentId,
                 initialVideoStep: initialVideoStep,
-                hardwareEvent: hardwareEvent,
+                hardwareEventId: extra is Map ? extra['hardware_event_id'] as String? : null,
+                hardwareDeviceId: extra is Map ? extra['hardware_device_id'] as String? : null,
+                hardwareTriggerUtc: extra is Map ? extra['hardware_trigger_utc'] as DateTime? : null,
               );
             },
           ),

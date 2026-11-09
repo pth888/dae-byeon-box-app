@@ -1,10 +1,15 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:blackbox_driver_care/screens/analysis/analysis_screen.dart';
+import 'package:blackbox_driver_care/services/auth_service.dart';
+import 'package:blackbox_driver_care/services/blackbox_video_service.dart';
+import 'package:blackbox_driver_care/services/case_service.dart';
 import 'package:blackbox_driver_care/services/consent_service.dart';
 import 'package:blackbox_driver_care/services/model_analysis_service.dart';
+import 'package:blackbox_driver_care/services/map_service.dart';
 import 'package:blackbox_driver_care/utils/theme.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -24,6 +29,7 @@ void main() {
       accessToken: () async => 'token',
     );
     await tester.pumpWidget(ProviderScope(
+      overrides: [caseServiceProvider.overrideWithValue(_NormalCases())],
       child: MaterialApp(
         home: AnalysisScreen(
           accidentId: _caseId,
@@ -74,6 +80,59 @@ void main() {
       loaders.add(icons.load());
     }
     await Future.wait(loaders);
+  });
+
+  testWidgets('PDF export stops old-case requests after an account change',
+      (tester) async {
+    final auth = _ExportAuth();
+    final map = _DeferredExportMap();
+    final evidence = _QueueAdapter([
+      _jsonResponse(200, {
+        'data': {'files': [], 'next_cursor': null},
+      }),
+    ]);
+    final model = ModelAnalysisService(
+      dio: Dio(BaseOptions(baseUrl: 'http://example.test'))
+        ..httpClientAdapter = _QueueAdapter([
+          _doneJob('export', rateB: 60, rateA: 40, text: 'Export report'),
+        ]),
+      accessToken: () async => 'test-token',
+    );
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        authProvider.overrideWith((_) => auth),
+        caseServiceProvider.overrideWithValue(_NormalCases()),
+        mapServiceProvider.overrideWithValue(map),
+        backendEvidenceServiceProvider.overrideWithValue(BackendEvidenceService(
+          apiDio: Dio(BaseOptions(baseUrl: 'http://example.test'))
+            ..httpClientAdapter = evidence,
+          storageDio: Dio(),
+          accessToken: () async => 'test-token',
+        )),
+      ],
+      child: MaterialApp(
+        home: AnalysisScreen(
+          accidentId: _caseId,
+          analysisService: model,
+          initialReportId: 'rpt_export',
+          initialJobId: 'export',
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(_exportButton(tester).onPressed, isNotNull);
+    await tester.tap(find.byIcon(Icons.ios_share_rounded));
+    await tester.pump();
+    expect(map.requested, isTrue);
+    auth.changeOwner('other@example.com');
+    map.pending.completeError(const MapServiceException('Map unavailable'));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(evidence.requests, isEmpty,
+        reason: 'An old report must not request evidence as the next user.');
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(
@@ -131,6 +190,7 @@ void main() {
     );
 
     await tester.pumpWidget(ProviderScope(
+      overrides: [caseServiceProvider.overrideWithValue(_NormalCases())],
       child: MaterialApp(
         home: AnalysisScreen(accidentId: _caseId, analysisService: service),
       ),
@@ -166,6 +226,7 @@ void main() {
     );
 
     await tester.pumpWidget(ProviderScope(
+      overrides: [caseServiceProvider.overrideWithValue(_NormalCases())],
       child: MaterialApp(
         home: AnalysisScreen(
           accidentId: _caseId,
@@ -224,6 +285,7 @@ void main() {
     );
 
     await tester.pumpWidget(ProviderScope(
+      overrides: [caseServiceProvider.overrideWithValue(_NormalCases())],
       child: MaterialApp(
         home: AnalysisScreen(
           accidentId: _caseId,
@@ -295,6 +357,7 @@ void main() {
     );
 
     await tester.pumpWidget(ProviderScope(
+      overrides: [caseServiceProvider.overrideWithValue(_NormalCases())],
       child: MaterialApp(
         home: AnalysisScreen(
           accidentId: _caseId,
@@ -361,6 +424,7 @@ void main() {
       pollInterval: Duration.zero,
     );
     Widget app(String jobId, String reportId) => ProviderScope(
+          overrides: [caseServiceProvider.overrideWithValue(_NormalCases())],
           child: MaterialApp(
             home: AnalysisScreen(
               accidentId: _caseId,
@@ -446,6 +510,7 @@ void main() {
     );
 
     await tester.pumpWidget(ProviderScope(
+      overrides: [caseServiceProvider.overrideWithValue(_NormalCases())],
       child: MaterialApp(
         home: AnalysisScreen(accidentId: _caseId, analysisService: service),
       ),
@@ -530,6 +595,7 @@ void main() {
     );
 
     await tester.pumpWidget(ProviderScope(
+      overrides: [caseServiceProvider.overrideWithValue(_NormalCases())],
       child: MaterialApp(
         theme: AppTheme.lightTheme.copyWith(
           platform: TargetPlatform.android,
@@ -545,7 +611,6 @@ void main() {
           child: AnalysisScreen(
             accidentId: _caseId,
             analysisService: service,
-            roadDebounce: const Duration(milliseconds: 300),
           ),
         ),
       ),
@@ -579,7 +644,13 @@ void main() {
     );
     await tester.ensureVisible(find.byKey(const Key('road-action-left')));
     await tester.tap(find.byKey(const Key('road-action-left')));
-    await tester.pump(const Duration(milliseconds: 301));
+    await tester.pump();
+    expect(
+      adapter.requests.where((request) => request.method == 'POST').length,
+      1,
+    );
+    await tester.ensureVisible(find.text('입력 내용으로 다시 분석'));
+    await tester.tap(find.text('입력 내용으로 다시 분석'));
     await tester.pumpAndSettle();
 
     final analysisPosts =
@@ -614,7 +685,13 @@ void main() {
     await tester
         .ensureVisible(find.byKey(const Key('road-action-circulating')));
     await tester.tap(find.byKey(const Key('road-action-circulating')));
-    await tester.pump(const Duration(milliseconds: 301));
+    await tester.pump();
+    expect(
+      adapter.requests.where((request) => request.method == 'POST').length,
+      2,
+    );
+    await tester.ensureVisible(find.text('입력 내용으로 다시 분석'));
+    await tester.tap(find.text('입력 내용으로 다시 분석'));
     await tester.pumpAndSettle();
 
     expect(
@@ -712,6 +789,7 @@ void main() {
       pollInterval: Duration.zero,
     );
     await tester.pumpWidget(ProviderScope(
+      overrides: [caseServiceProvider.overrideWithValue(_NormalCases())],
       child: MaterialApp(
         home: AnalysisScreen(accidentId: _caseId, analysisService: service),
       ),
@@ -723,8 +801,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('상대 신호위반'));
     await tester.tap(find.text('상대 신호위반'));
-    await tester.ensureVisible(find.text('추가 정황 반영하여 재분석'));
-    await tester.tap(find.text('추가 정황 반영하여 재분석'));
+    await tester.ensureVisible(find.text('입력 내용으로 다시 분석'));
+    await tester.tap(find.text('입력 내용으로 다시 분석'));
     await tester.pumpAndSettle();
     expect(
       find.textContaining('사용자 추가 검색 · 판례 · 선택한 신호 판례'),
@@ -737,8 +815,8 @@ void main() {
     expect((post.data as Map)['facts'], {'opponent_signal_violation': true});
     await tester.ensureVisible(find.text('상대 신호위반'));
     await tester.tap(find.text('상대 신호위반'));
-    await tester.ensureVisible(find.text('추가 정황 반영하여 재분석'));
-    await tester.tap(find.text('추가 정황 반영하여 재분석'));
+    await tester.ensureVisible(find.text('입력 내용으로 다시 분석'));
+    await tester.tap(find.text('입력 내용으로 다시 분석'));
     await tester.pumpAndSettle();
     post = adapter.requests.where((request) => request.method == 'POST').last;
     expect((post.data as Map)['keywords'], isEmpty);
@@ -798,11 +876,11 @@ void main() {
     );
 
     Widget app(String accidentId) => ProviderScope(
+          overrides: [caseServiceProvider.overrideWithValue(_NormalCases())],
           child: MaterialApp(
             home: AnalysisScreen(
               accidentId: accidentId,
               analysisService: service,
-              roadDebounce: const Duration(milliseconds: 10),
             ),
           ),
         );
@@ -826,7 +904,14 @@ void main() {
 
     await tester.ensureVisible(find.byKey(const Key('road-option-4')));
     await tester.tap(find.byKey(const Key('road-option-4')));
-    await tester.pump(const Duration(milliseconds: 11));
+    await tester.pump();
+    expect(
+      adapter.requests.where((request) => request.method == 'POST').length,
+      2,
+      reason: 'Changing a road selection must not start analysis.',
+    );
+    await tester.ensureVisible(find.text('입력 내용으로 다시 분석'));
+    await tester.tap(find.text('입력 내용으로 다시 분석'));
     await tester.pumpAndSettle();
 
     final lastPost = adapter.requests
@@ -880,6 +965,7 @@ void main() {
     );
 
     await tester.pumpWidget(ProviderScope(
+      overrides: [caseServiceProvider.overrideWithValue(_NormalCases())],
       child: MaterialApp(
         home: AnalysisScreen(accidentId: _caseId, analysisService: service),
       ),
@@ -921,6 +1007,7 @@ void main() {
     );
 
     await tester.pumpWidget(ProviderScope(
+      overrides: [caseServiceProvider.overrideWithValue(_NormalCases())],
       child: MaterialApp(
         home: AnalysisScreen(accidentId: _caseId, analysisService: service),
       ),
@@ -975,6 +1062,7 @@ void main() {
     );
 
     await tester.pumpWidget(ProviderScope(
+      overrides: [caseServiceProvider.overrideWithValue(_NormalCases())],
       child: MaterialApp(
         home: AnalysisScreen(accidentId: _caseId, analysisService: service),
       ),
@@ -1059,6 +1147,7 @@ void main() {
     );
 
     await tester.pumpWidget(ProviderScope(
+      overrides: [caseServiceProvider.overrideWithValue(_NormalCases())],
       child: MaterialApp(
         home: AnalysisScreen(accidentId: _caseId, analysisService: service),
       ),
@@ -1087,6 +1176,38 @@ void main() {
 
 const _caseId = 'case_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const _caseIdB = 'case_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+class _NormalCases extends Fake implements CaseService {
+  @override
+  Future<BackendCase> selectOwnedCase(String caseId) async => BackendCase(
+        id: caseId,
+        deviceId: 'dev_test',
+        title: 'Test accident',
+        status: 'uploaded',
+        createdAt: DateTime.utc(2026, 11, 9),
+      );
+}
+
+class _ExportAuth extends AuthNotifier {
+  _ExportAuth()
+      : super(restoreSession: false, tokenStore: MemoryAuthStore()) {
+    changeOwner('owner@example.com');
+  }
+
+  void changeOwner(String email) =>
+      state = AuthState(status: AuthStatus.authenticated, email: email);
+}
+
+class _DeferredExportMap extends Fake implements MapService {
+  final pending = Completer<AccidentMap>();
+  bool requested = false;
+
+  @override
+  Future<AccidentMap> fetchCaseMap(String caseId) {
+    requested = true;
+    return pending.future;
+  }
+}
 
 ResponseBody _doneJob(
   String jobId, {

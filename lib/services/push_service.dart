@@ -45,7 +45,7 @@ class AccidentPush {
       lat: toD(data['lat']),
       lon: toD(data['lon']),
       caseId: data['case_id']?.toString(),
-      gForce: toD(data['g_force'] ?? data['gforce']),
+      gForce: toD(data['g_force'] ?? data['dynamic_g'] ?? data['gforce']),
     );
   }
 }

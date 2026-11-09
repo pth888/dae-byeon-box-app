@@ -7,12 +7,16 @@
 // 목록에서 영상을 눌러도 바로 분석으로 넘어가지 않고, 먼저 영상만 확인한다.
 // 보기 화면 아래의 '이 영상으로 AI 과실 분석' 버튼을 누르면 바로 분석 화면으로 간다.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../services/blackbox_video_service.dart';
 import '../../services/case_service.dart';
+import '../../services/auth_service.dart';
+import '../../services/local_files.dart';
 import '../../utils/theme.dart';
 import '../../widgets/accident_location_map.dart';
 import '../../widgets/blackbox_video_player_widget.dart';
@@ -67,20 +71,42 @@ class AccidentVideoListScreen extends ConsumerStatefulWidget {
 }
 
 class _AccidentVideoListScreenState
-    extends ConsumerState<AccidentVideoListScreen> {
+    extends ConsumerState<AccidentVideoListScreen> with WidgetsBindingObserver {
   final List<BackendCase> _cases = [];
   String? _nextCursor;
   bool _loading = true;
   bool _loadingMore = false;
+  bool _silentlyRefreshing = false;
   String? _error;
+  Timer? _refreshTimer;
+  final Set<String> _deletedIds = {};
+  final Set<String> _deletingIds = {};
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load(reset: true);
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _refreshLatest(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refreshLatest();
   }
 
   Future<void> _load({required bool reset}) async {
+    if (_silentlyRefreshing) return;
     if (reset) {
       setState(() {
         _loading = true;
@@ -97,7 +123,8 @@ class _AccidentVideoListScreenState
       if (!mounted) return;
       setState(() {
         if (reset) _cases.clear();
-        _cases.addAll(page.items);
+        _cases
+            .addAll(page.items.where((item) => !_deletedIds.contains(item.id)));
         _nextCursor = page.nextCursor;
         _loading = false;
         _loadingMore = false;
@@ -112,6 +139,57 @@ class _AccidentVideoListScreenState
     }
   }
 
+  Future<void> _refreshLatest() async {
+    if (!mounted ||
+        ModalRoute.of(context)?.isCurrent != true ||
+        _loading ||
+        _loadingMore ||
+        _silentlyRefreshing) {
+      return;
+    }
+    if (_cases.isEmpty) {
+      await _load(reset: true);
+      return;
+    }
+
+    _silentlyRefreshing = true;
+    try {
+      final page = await ref.read(caseServiceProvider).listCases(limit: 20);
+      if (!mounted) return;
+
+      final knownIds = _cases.map((item) => item.id).toSet();
+      final newCases = page.items
+          .where((item) => !knownIds.contains(item.id))
+          .toList(growable: false);
+      final refreshedIds = page.items.map((item) => item.id).toSet();
+      final olderCases = _cases
+          .where((item) => !refreshedIds.contains(item.id))
+          .toList(growable: false);
+
+      setState(() {
+        _cases
+          ..clear()
+          ..addAll(page.items.where((item) => !_deletedIds.contains(item.id)))
+          ..addAll(olderCases.where((item) => !_deletedIds.contains(item.id)));
+        _nextCursor = page.nextCursor;
+        _error = null;
+      });
+      if (newCases.isNotEmpty && mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text('새 사고 영상 ${newCases.length}건이 도착했습니다.'),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 3),
+          ));
+      }
+    } catch (_) {
+      // Keep the last successful list visible; the next poll retries.
+    } finally {
+      _silentlyRefreshing = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -119,8 +197,7 @@ class _AccidentVideoListScreenState
       body: SafeArea(
         child: Column(
           children: [
-            _header(context, '사고 영상 기록',
-                onRefresh: () => _load(reset: true)),
+            _header(context, '사고 영상 기록', onRefresh: () => _load(reset: true)),
             Expanded(child: _buildBody()),
           ],
         ),
@@ -250,11 +327,63 @@ class _AccidentVideoListScreenState
                 ],
               ),
             ),
+            IconButton(
+              tooltip: '영상과 사건 삭제',
+              onPressed: _deletingIds.contains(item.id)
+                  ? null
+                  : () => _deleteVideo(item),
+              icon: const Icon(Icons.delete_outline, color: AppTheme.textSub),
+            ),
             const Icon(Icons.chevron_right_rounded, color: AppTheme.textHint),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _deleteVideo(BackendCase item) async {
+    final principal = authenticatedPrincipal(ref.read(authProvider));
+    if (principal == null || _deletingIds.contains(item.id)) return;
+    final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+              title: const Text('영상과 사건 삭제'),
+              content: const Text(
+                  '이 사고의 영상·사진·GPS·분석 리포트를 함께 삭제합니다. 되돌릴 수 없습니다. 리포트만 지우려면 분석 기록에서 삭제해 주세요.'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('취소')),
+                TextButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('영상과 사건 삭제')),
+              ],
+            ));
+    bool current() =>
+        mounted && principal == authenticatedPrincipal(ref.read(authProvider));
+    if (confirmed != true || !current()) return;
+    setState(() => _deletingIds.add(item.id));
+    try {
+      await ref.read(caseServiceProvider).deleteCase(item.id);
+      if (!current()) return;
+      ref.read(blackboxVideoProvider.notifier).resetForCase(item.id);
+      setState(() {
+        _deletedIds.add(item.id);
+        _cases.removeWhere((row) => row.id == item.id);
+      });
+      try {
+        await cleanupLocalCaseFiles(item.id);
+      } catch (_) {/* Server deletion already accepted. */}
+      if (current())
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('영상과 사건 삭제를 요청했습니다.')));
+    } catch (error) {
+      if (current())
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (current()) setState(() => _deletingIds.remove(item.id));
+    }
   }
 
   Widget _buildMoreButton() {
@@ -404,11 +533,12 @@ class _AccidentVideoViewScreenState
                       const SizedBox(height: 20),
                     ],
                     _buildVideoSection(),
+                    const SizedBox(height: 20),
+                    _buildAnalysisButton(),
                   ],
                 ),
               ),
             ),
-            _buildBottomButton(),
           ],
         ),
       ),
@@ -443,8 +573,7 @@ class _AccidentVideoViewScreenState
         return _status(
           icon: Icons.cloud_queue_rounded,
           title: '원본 영상 준비 대기 중',
-          subtitle: videoState.errorMessage ??
-              '이 사고의 원본 영상이 아직 준비되지 않았습니다.',
+          subtitle: videoState.errorMessage ?? '이 사고의 원본 영상이 아직 준비되지 않았습니다.',
           onRetry: _retry,
         );
       case VideoStatus.fetching:
@@ -484,7 +613,9 @@ class _AccidentVideoViewScreenState
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            BlackboxVideoPlayerWidget(localPath: videoState.localPath!),
+            BlackboxVideoPlayerWidget(
+              localPath: videoState.localPath ?? '',
+            ),
             const SizedBox(height: 16),
             _outlineButton(
               icon: Icons.location_on_outlined,
@@ -557,6 +688,8 @@ class _AccidentVideoViewScreenState
                 AccidentLocationMap(
                   key: ValueKey('map-${widget.caseId}'),
                   caseId: widget.caseId,
+                  fallbackLatitude: _case?.lat,
+                  fallbackLongitude: _case?.lon,
                 ),
               ],
             ),
@@ -585,30 +718,21 @@ class _AccidentVideoViewScreenState
     }
   }
 
-  Widget _buildBottomButton() {
+  Widget _buildAnalysisButton() {
     final enabled = _case != null;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-      child: GestureDetector(
-        onTap: enabled ? _startAnalysis : null,
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 18),
-          decoration: BoxDecoration(
-            color: enabled ? AppTheme.pointWhite : AppTheme.surfaceDark,
-            borderRadius: BorderRadius.circular(100),
-          ),
-          child: Center(
-            child: Text(
-              '이 영상으로 AI 과실 분석',
-              style: TextStyle(
-                color: enabled ? Colors.black : AppTheme.textHint,
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ),
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        onPressed: enabled ? _startAnalysis : null,
+        icon: const Icon(Icons.analytics_outlined),
+        label: Text(_case?.isDemo == true ? '주차장 모델로 분석' : '분석 페이지로 이동'),
+        style: FilledButton.styleFrom(
+          backgroundColor: AppTheme.pointWhite,
+          foregroundColor: Colors.black,
+          disabledBackgroundColor: AppTheme.surfaceDark,
+          disabledForegroundColor: AppTheme.textHint,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: const StadiumBorder(),
         ),
       ),
     );

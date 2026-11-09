@@ -35,12 +35,14 @@ class RoadQuestionWidget extends StatelessWidget {
     required this.selectedAction,
     required this.onChanged,
     this.isBusy = false,
+    this.roadLocked = false,
   });
 
   final int? selectedPlace;
   final String? selectedAction;
   final RoadSelectionChanged onChanged;
   final bool isBusy;
+  final bool roadLocked;
 
   @override
   Widget build(BuildContext context) {
@@ -67,7 +69,7 @@ class RoadQuestionWidget extends StatelessWidget {
               label: Text(roadLabels[place]),
               selected: selected,
               showCheckmark: false,
-              onSelected: isBusy
+              onSelected: isBusy || roadLocked
                   ? null
                   : (_) => onChanged(
                         place,
