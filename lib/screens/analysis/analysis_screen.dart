@@ -71,10 +71,23 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     '내 깜빡이 점등': false,
     '상대 신호위반': false,
     '상대 과속': false,
-    '빗길·악천후': false,
-    '야간': false,
     '어린이보호구역': false,
   };
+
+  // 주행 환경 (줄마다 하나만 선택, 모르면 비워 둠)
+  static const _weatherOptions = ['맑음', '흐림', '비', '눈', '안개'];
+  static const _surfaceOptions = ['마른 노면', '젖은 노면', '빙판·눈길'];
+  static const _timeOptions = ['주간', '야간'];
+  String? _weather;
+  String? _surface;
+  String? _timeOfDay;
+  bool _envExpanded = false;
+
+  /// "비 · 젖은 노면 · 야간" (아무것도 안 골랐으면 null)
+  String? get _environmentSummary {
+    final parts = [_weather, _surface, _timeOfDay].whereType<String>().toList();
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
 
   @override
   void initState() {
@@ -122,6 +135,10 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     _egoMovementController.clear();
     _otherMovementController.clear();
     _userFeedback.updateAll((_, __) => false);
+    _weather = null;
+    _surface = null;
+    _timeOfDay = null;
+    _envExpanded = false;
     _initialize();
   }
 
@@ -301,6 +318,31 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
           keywords.add('어린이보호구역');
       }
     }
+    // 주행 환경: 궂은 날씨·노면은 기존 bad_weather 정황으로, 나머지는 검색어로 보낸다
+    void addKeyword(String word) {
+      if (!keywords.contains(word)) keywords.add(word);
+    }
+
+    switch (_weather) {
+      case '비':
+        facts['bad_weather'] = true;
+        addKeyword('빗길');
+      case '눈':
+        facts['bad_weather'] = true;
+        addKeyword('눈길');
+      case '안개':
+        facts['bad_weather'] = true;
+        addKeyword('안개');
+    }
+    switch (_surface) {
+      case '젖은 노면':
+        facts['bad_weather'] = true;
+        addKeyword('빗길');
+      case '빙판·눈길':
+        facts['bad_weather'] = true;
+        addKeyword('빙판');
+    }
+    if (_timeOfDay == '야간') addKeyword('야간');
     return (facts: facts, keywords: keywords);
   }
 
@@ -425,16 +467,6 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                   '위치·도로',
                   _registeredLocationText(report) ?? '확인할 수 없음',
                 ),
-                _summaryRow(
-                  '기상',
-                  _weatherSummaryText(report),
-                ),
-                _summaryRow(
-                  '속도',
-                  report.speedDemo == null
-                      ? '확인할 수 없음'
-                      : '${report.speedDemo!.valueKmh} km/h',
-                ),
                 _summaryRow('법령·판례', _lawSummaryText(law)),
                 _summaryRow('분석일', _formatDate(report.createdAt)),
                 const SizedBox(height: 8),
@@ -500,13 +532,6 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     return '${local.year}.${twoDigits(local.month)}.${twoDigits(local.day)}';
   }
 
-  String _weatherSummaryText(ModelAnalysisReport report) {
-    final weather = report.currentWeather;
-    if (weather == null) return '확인할 수 없음';
-    return '${weather.condition} · '
-        '${_formatNumber(weather.temperatureC)}℃ · '
-        '강수량 ${_formatNumber(weather.precipitationMm)}mm';
-  }
 
   Future<void> _exportPdf() async {
     final report = _report;
@@ -674,6 +699,16 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     } on Object {
       // 지도는 없어도 리포트를 만든다.
     }
+
+    // 초동 대처에서 찍은 현장 사진 (없거나 못 받아도 리포트는 만든다)
+    var scenePhotos = <Uint8List>[];
+    try {
+      scenePhotos = await ref
+          .read(backendEvidenceServiceProvider)
+          .downloadScenePhotos(caseId);
+    } on Object {
+      scenePhotos = const [];
+    }
     if (!isCurrent()) throw StateError('PDF export superseded');
 
     // 도로·상대 움직임
@@ -814,6 +849,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
       otherActionLabel: actionLabel,
       weatherText: weatherText,
       mapImage: mapImage,
+      scenePhotos: scenePhotos,
       clipStartMs: clipStart,
       clipEndMs: clipEnd,
       impactMs: impactMs,
@@ -824,6 +860,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
           .where((entry) => entry.value)
           .map((entry) => entry.key)
           .toList(),
+      drivingEnvironment: _environmentSummary,
       egoMovement: _egoMovementController.text.trim(),
       otherMovement: _otherMovementController.text.trim(),
       statements: statements,
@@ -971,6 +1008,10 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
           const SizedBox(height: 10),
           _movementField('상대 차량', _otherMovementController),
           const SizedBox(height: 32),
+          const Text('주행 환경', style: AppTheme.label),
+          const SizedBox(height: 12),
+          _buildEnvironment(),
+          const SizedBox(height: 32),
           const Text('영상에 안 나온 정황', style: AppTheme.label),
           const SizedBox(height: 12),
           _buildExtras(),
@@ -1101,21 +1142,6 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
           ),
           const SizedBox(height: 24),
         ],
-        _statusBox(
-          icon: Icons.cloud_outlined,
-          text: _weatherText(report),
-          color:
-              report.currentWeather == null ? AppTheme.textSub : Colors.white,
-        ),
-        const SizedBox(height: 24),
-        if (report.speedDemo != null) ...[
-          _statusBox(
-            icon: Icons.speed_rounded,
-            text: '참고 속도\n${report.speedDemo!.valueKmh} km/h',
-            color: AppTheme.textSub,
-          ),
-          const SizedBox(height: 24),
-        ],
         LawResultPanel(analysis: report.analysis),
         const SizedBox(height: 14),
         SizedBox(
@@ -1199,13 +1225,6 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     return value.trim();
   }
 
-  String _weatherText(ModelAnalysisReport report) {
-    final weather = report.currentWeather;
-    if (weather == null) return '현재 기상 정보를 확인할 수 없습니다.';
-    return '기상은 현재 ${weather.condition}, '
-        '${_formatNumber(weather.temperatureC)}℃, '
-        '강수량 ${_formatNumber(weather.precipitationMm)}mm입니다.';
-  }
 
   String _formatNumber(double value) => value == value.roundToDouble()
       ? value.toInt().toString()
@@ -1282,6 +1301,121 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  /// 주행 환경: 접히는 칸 하나에 날씨·노면·시간대 선택 버튼
+  Widget _buildEnvironment() {
+    final summary = _environmentSummary;
+    return Column(
+      children: [
+        InkWell(
+          onTap: _isAnalyzing
+              ? null
+              : () => setState(() => _envExpanded = !_envExpanded),
+          borderRadius: BorderRadius.circular(6),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: AppTheme.cardDark,
+              border: Border.all(color: AppTheme.divider),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              children: [
+                Expanded(child: Text(summary ?? '날씨·노면·시간대 선택')),
+                Icon(_envExpanded
+                    ? Icons.keyboard_arrow_up_rounded
+                    : Icons.keyboard_arrow_down_rounded),
+              ],
+            ),
+          ),
+        ),
+        if (_envExpanded) ...[
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            decoration: BoxDecoration(
+              color: AppTheme.cardDark,
+              border: Border.all(color: AppTheme.divider),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _envRow('날씨', _weatherOptions, _weather,
+                    (v) => _weather = v),
+                const SizedBox(height: 12),
+                _envRow('노면', _surfaceOptions, _surface,
+                    (v) => _surface = v),
+                const SizedBox(height: 12),
+                _envRow('시간대', _timeOptions, _timeOfDay,
+                    (v) => _timeOfDay = v),
+                const SizedBox(height: 12),
+                const Text(
+                  '모르면 비워 두세요. 선택한 내용은 법령·판례 검색과 리포트에 반영됩니다.',
+                  style: TextStyle(color: AppTheme.textHint, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _envRow(
+    String label,
+    List<String> options,
+    String? selected,
+    void Function(String? value) assign,
+  ) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 52,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(label,
+                style: const TextStyle(color: AppTheme.textSub, fontSize: 13)),
+          ),
+        ),
+        Expanded(
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: options.map((option) {
+              final isSelected = option == selected;
+              return ChoiceChip(
+                label: Text(option),
+                selected: isSelected,
+                showCheckmark: false,
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.black : Colors.white,
+                  fontSize: 13,
+                ),
+                selectedColor: AppTheme.pointWhite,
+                backgroundColor: AppTheme.cardDark,
+                side: BorderSide(
+                  color: isSelected
+                      ? AppTheme.pointWhite
+                      : const Color(0xFF3A3A3E),
+                ),
+                shape: const StadiumBorder(),
+                onSelected: _isAnalyzing
+                    ? null
+                    // 같은 걸 다시 누르면 선택이 풀린다
+                    : (_) => setState(() {
+                          assign(isSelected ? null : option);
+                          _reportIsPrevious = _report != null;
+                        }),
+              );
+            }).toList(),
+          ),
+        ),
+      ],
     );
   }
 

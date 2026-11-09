@@ -81,22 +81,18 @@ class _DriverLicenseCardState extends ConsumerState<DriverLicenseCard> {
       number: found.number.isNotEmpty ? found.number : base.number,
       licenseType:
           found.licenseType.isNotEmpty ? found.licenseType : base.licenseType,
-      renewalPeriod: found.renewalPeriod.isNotEmpty
-          ? found.renewalPeriod
-          : base.renewalPeriod,
     );
     final readCount = [
       found.name,
       found.number,
       found.licenseType,
-      found.renewalPeriod,
     ].where((v) => v.isNotEmpty).length;
     messenger.showSnackBar(SnackBar(
       content: Text(readCount == 0
           ? '면허증 글자를 읽지 못했습니다. 밝은 곳에서 면허증이 화면에 꽉 차게 다시 찍거나 직접 입력해 주세요.'
           : kOcrReadsKorean
               ? '면허증에서 $readCount개 항목을 읽었습니다. 확인 후 저장해 주세요.'
-              : '면허번호·기간 등 $readCount개 항목을 읽었습니다. 이름과 면허 종류는 직접 입력해 주세요.'),
+              : '면허번호를 읽었습니다. 이름과 면허 종류는 직접 입력해 주세요.'),
     ));
     await _edit(merged);
   }
@@ -105,7 +101,6 @@ class _DriverLicenseCardState extends ConsumerState<DriverLicenseCard> {
     final name = TextEditingController(text: initial.name);
     final number = TextEditingController(text: initial.number);
     final type = TextEditingController(text: initial.licenseType);
-    final period = TextEditingController(text: initial.renewalPeriod);
 
     final result = await showDialog<DriverLicenseInfo>(
       context: context,
@@ -127,7 +122,6 @@ class _DriverLicenseCardState extends ConsumerState<DriverLicenseCard> {
               _field(name, '이름', '홍길동'),
               _field(number, '면허번호', '11-19-123456-78'),
               _field(type, '면허 종류', '1종 보통'),
-              _field(period, '적성검사·갱신 기간', '2025.01.01 ~ 2025.12.31'),
             ],
           ),
         ),
@@ -144,7 +138,6 @@ class _DriverLicenseCardState extends ConsumerState<DriverLicenseCard> {
                 name: name.text.trim(),
                 number: number.text.trim(),
                 licenseType: type.text.trim(),
-                renewalPeriod: period.text.trim(),
               ),
             ),
             child: const Text('저장', style: TextStyle(color: Colors.white)),
@@ -157,7 +150,6 @@ class _DriverLicenseCardState extends ConsumerState<DriverLicenseCard> {
       name.dispose();
       number.dispose();
       type.dispose();
-      period.dispose();
     });
     if (result == null || !mounted) return;
 
@@ -253,11 +245,7 @@ class _DriverLicenseCardState extends ConsumerState<DriverLicenseCard> {
                     const SizedBox(height: 4),
                     Text(
                       registered
-                          ? [
-                              if (shown.licenseType.isNotEmpty) shown.licenseType,
-                              if (shown.renewalPeriod.isNotEmpty)
-                                '갱신 ${shown.renewalPeriod}',
-                            ].join(' · ').ifEmpty('면허 종류·갱신 기간 미입력')
+                          ? shown.licenseType.ifEmpty('면허 종류 미입력')
                           : '면허증을 촬영하면 자동으로 입력됩니다',
                       style: const TextStyle(
                         color: AppTheme.textHint,

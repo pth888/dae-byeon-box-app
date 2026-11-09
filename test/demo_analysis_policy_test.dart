@@ -174,11 +174,16 @@ void main() {
     await tester.ensureVisible(find.text('추가 정황 선택'));
     await tester.tap(find.text('추가 정황 선택'));
     await tester.pumpAndSettle();
-    for (final label in ['상대 과속', '야간']) {
-      await tester.ensureVisible(find.text(label));
-      await tester.tap(find.text(label));
-      await tester.pumpAndSettle();
-    }
+    await tester.ensureVisible(find.text('상대 과속'));
+    await tester.tap(find.text('상대 과속'));
+    await tester.pumpAndSettle();
+    // 야간은 주행 환경 칸에서 고른다
+    await tester.ensureVisible(find.text('날씨·노면·시간대 선택'));
+    await tester.tap(find.text('날씨·노면·시간대 선택'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('야간'));
+    await tester.tap(find.text('야간'));
+    await tester.pumpAndSettle();
     expect(posts, hasLength(1));
     await tester.ensureVisible(find.text('입력 내용으로 다시 분석'));
     await tester.tap(find.text('입력 내용으로 다시 분석'));

@@ -1,7 +1,7 @@
 // lib/services/driver_license_service.dart
 //
 // 운전면허증 정보 (마이페이지 · 운전면허 카드)
-//   - 면허증 사진을 OCR(ML Kit 한국어)로 읽어 이름·면허번호·면허 종류·적성검사(갱신) 기간을 채운다.
+//   - 면허증 사진을 OCR 로 읽어 이름·면허번호·면허 종류를 채운다.
 //   - 주민등록번호와 주소는 읽더라도 저장하지 않는다.
 //   - 휴대폰 보안 저장소에 계정별로 저장한다. 면허번호는 기존처럼 서버 프로필에도 저장된다.
 
@@ -18,7 +18,6 @@ class DriverLicenseInfo {
     this.name = '',
     this.number = '',
     this.licenseType = '',
-    this.renewalPeriod = '',
   });
 
   /// 이름
@@ -30,33 +29,26 @@ class DriverLicenseInfo {
   /// 면허 종류 (예: 1종 보통)
   final String licenseType;
 
-  /// 적성검사·갱신 기간 (예: 2025.01.01 ~ 2025.12.31)
-  final String renewalPeriod;
-
   bool get isEmpty =>
       name.isEmpty &&
       number.isEmpty &&
-      licenseType.isEmpty &&
-      renewalPeriod.isEmpty;
+      licenseType.isEmpty;
 
   DriverLicenseInfo copyWith({
     String? name,
     String? number,
     String? licenseType,
-    String? renewalPeriod,
   }) =>
       DriverLicenseInfo(
         name: name ?? this.name,
         number: number ?? this.number,
         licenseType: licenseType ?? this.licenseType,
-        renewalPeriod: renewalPeriod ?? this.renewalPeriod,
       );
 
   Map<String, String> toJson() => {
         'name': name,
         'number': number,
         'license_type': licenseType,
-        'renewal_period': renewalPeriod,
       };
 
   static DriverLicenseInfo fromJson(Map<String, dynamic> json) =>
@@ -64,7 +56,6 @@ class DriverLicenseInfo {
         name: (json['name'] as String?) ?? '',
         number: (json['number'] as String?) ?? '',
         licenseType: (json['license_type'] as String?) ?? '',
-        renewalPeriod: (json['renewal_period'] as String?) ?? '',
       );
 }
 
@@ -92,7 +83,6 @@ class DriverLicenseParser {
     return DriverLicenseInfo(
       number: _number(text),
       licenseType: _types(text),
-      renewalPeriod: _period(text),
       name: _name(lines),
     );
   }
@@ -125,16 +115,6 @@ class DriverLicenseParser {
     }
     if (found.isEmpty && RegExp(r'원동기').hasMatch(text)) found.add('2종 원동기');
     return found.join(' · ');
-  }
-
-  /// 적성검사·갱신 기간: "2025.01.01 ~ 2025.12.31"
-  static String _period(String text) {
-    const d = r'(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})\s*일?';
-    final re = RegExp('$d\\s*[~～\\-–]\\s*$d');
-    final m = re.firstMatch(text);
-    if (m == null) return '';
-    String two(String? v) => (v ?? '').padLeft(2, '0');
-    return '${m[1]}.${two(m[2])}.${two(m[3])} ~ ${m[4]}.${two(m[5])}.${two(m[6])}';
   }
 
   /// 이름: 한글 2~4자만 있는 줄 중 면허증 고정 문구가 아닌 첫 줄

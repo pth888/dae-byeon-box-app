@@ -16,6 +16,7 @@ import '../../services/case_service.dart';
 import '../../services/local_files.dart';
 import '../../services/profile_service.dart';
 import '../../widgets/blackbox_video_player_widget.dart';
+import '../../widgets/scene_evidence_gallery.dart';
 import '../../widgets/accident_location_map.dart';
 import '../../widgets/accident_case_picker_sheet.dart';
 import '../../utils/theme.dart';
@@ -46,6 +47,8 @@ class _FirstResponseScreenState extends ConsumerState<FirstResponseScreen> {
   void Function() _cancelVideoRequest = () {};
   int _photoCount = 0;
   int _videoCount = 0;
+  // 사진·영상을 올릴 때마다 늘려서 "촬영한 사진·영상" 목록을 다시 불러온다
+  int _evidenceRevision = 0;
   int _currentStep = 0;
   String? _caseId;
   String? _caseError;
@@ -642,6 +645,20 @@ class _FirstResponseScreenState extends ConsumerState<FirstResponseScreen> {
             color: AppTheme.teslaRed,
             backgroundColor: AppTheme.divider,
           ),
+        if (_caseId != null && _caseId!.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          SceneEvidenceGallery(
+            key: ValueKey('$_caseId-$_evidenceRevision'),
+            caseId: _caseId!,
+            onCounts: (photos, videos) {
+              if (!mounted) return;
+              setState(() {
+                _photoCount = photos;
+                _videoCount = videos;
+              });
+            },
+          ),
+        ],
       ],
     );
   }
@@ -1168,7 +1185,10 @@ class _FirstResponseScreenState extends ConsumerState<FirstResponseScreen> {
             mime: mime,
           );
       if (!current() || _caseId != confirmed) return false;
-      setState(() => onComplete?.call());
+      setState(() {
+        onComplete?.call();
+        _evidenceRevision++;
+      });
       _showMessage('증거 파일이 사건에 안전하게 저장되었습니다.');
       return true;
     } catch (error) {

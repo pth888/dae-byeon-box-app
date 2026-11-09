@@ -121,6 +121,8 @@ class ReportData {
     this.otherActionLabel,
     this.weatherText,
     this.mapImage,
+    this.drivingEnvironment,
+    this.scenePhotos = const [],
     this.clipStartMs,
     this.clipEndMs,
     this.impactMs,
@@ -163,6 +165,12 @@ class ReportData {
   final String? otherActionLabel;
   final String? weatherText;
   final Uint8List? mapImage;
+
+  /// 사용자가 고른 주행 환경 (예: 비 · 젖은 노면 · 야간)
+  final String? drivingEnvironment;
+
+  /// 초동 대처에서 찍은 현장 사진 (최신순, 최대 6장)
+  final List<Uint8List> scenePhotos;
 
   // 분석 구간 (원본 영상 기준 ms)
   final int? clipStartMs;
@@ -266,6 +274,10 @@ class PdfReportService {
           ],
           _h2(f, no(), '사고 정보'),
           _incidentInfo(f, d),
+          if (d.scenePhotos.isNotEmpty) ...[
+            _h2(f, no(), '현장 사진', '초동 대처에서 촬영해 사건에 저장한 사진 · ${d.scenePhotos.length}장'),
+            _scenePhotos(d),
+          ],
           if (d.aiSummary != null) ...[
             _h2(f, '!', 'AI 설명', '분석 결과를 문장으로 정리한 내용'),
             _quote(f, d.aiSummary!, dark: true),
@@ -738,8 +750,6 @@ class PdfReportService {
               d.roadAutoNote)),
       if (d.otherActionLabel != null)
         _row(f, '상대 차량 움직임', _value(f, d.otherActionLabel!, '사용자 답변')),
-      _row(f, '사고 당시 기상', _value(f, d.weatherText ?? '확인 불가')),
-      _row(f, '주행 속도', _value(f, '측정값 없음', '리포트에 포함하지 않음')),
     ]);
     final map = d.mapImage;
     if (map == null) return table;
@@ -882,6 +892,33 @@ class PdfReportService {
     );
   }
 
+  /// 현장 사진: 한 줄에 3장, 잘리지 않게 칸 안에 맞춘다
+  static pw.Widget _scenePhotos(ReportData d) {
+    final tiles = <pw.Widget>[];
+    for (final bytes in d.scenePhotos) {
+      pw.ImageProvider image;
+      try {
+        image = pw.MemoryImage(bytes);
+      } catch (_) {
+        continue; // 읽을 수 없는 형식은 건너뛴다
+      }
+      tiles.add(pw.Container(
+        width: 165,
+        height: 124,
+        decoration: pw.BoxDecoration(
+          color: _fill,
+          borderRadius: pw.BorderRadius.circular(6),
+        ),
+        child: pw.ClipRRect(
+          horizontalRadius: 6,
+          verticalRadius: 6,
+          child: pw.Image(image, fit: pw.BoxFit.contain),
+        ),
+      ));
+    }
+    return pw.Wrap(spacing: 8, runSpacing: 8, children: tiles);
+  }
+
   static pw.Widget _mapImage(Uint8List bytes) {
     final image = pw.MemoryImage(bytes);
     final w = image.width;
@@ -908,6 +945,8 @@ class PdfReportService {
               '${d.roadPlaceLabel ?? '확인 불가'} (${d.roadUserSelected ? '사용자가 직접 선택' : 'GPS 기반 자동 추정'})')),
       if (d.otherActionLabel != null)
         _row(f, '상대 차량 움직임', _value(f, d.otherActionLabel!)),
+      if ((d.drivingEnvironment ?? '').isNotEmpty)
+        _row(f, '주행 환경', _value(f, d.drivingEnvironment!)),
       _row(
         f,
         '추가로 체크한 정황',

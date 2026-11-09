@@ -3,6 +3,7 @@
 // 소유한 백엔드 사건의 증거 업로드 및 블랙박스 원본 영상 재생.
 
 import 'dart:async';
+import 'dart:typed_data';
 import 'dart:io' if (dart.library.html) '../utils/io_web_stub.dart';
 
 import 'package:crypto/crypto.dart';
@@ -439,7 +440,64 @@ class BackendEvidenceService {
     );
   }
 
-  /// 사건에 올라간 모든 증거 파일 목록 (정밀 분석 리포트의 무결성 표시용)
+  /// 증거 파일 하나의 임시 접근 주소 (현장 사진·영상 보기용)
+  Future<String> fileAccessUrl({
+    required String caseId,
+    required String fileId,
+  }) async {
+    _requireCaseId(caseId);
+    final token = await _requiredToken();
+    final access = await _apiDio.get(
+      '/api/v1/cases/$caseId/files/$fileId/access',
+      options: Options(headers: _bearer(token)),
+    );
+    if (access.statusCode != 200) {
+      throw EvidenceServiceException(
+          _apiMessage(access, '파일 접근 주소를 받을 수 없습니다.'));
+    }
+    final data = _envelope(access);
+    final url = data['url'];
+    if (data['file_id'] != fileId ||
+        url is! String ||
+        Uri.tryParse(url)?.hasScheme != true) {
+      throw const EvidenceServiceException('서버의 파일 접근 응답이 올바르지 않습니다.');
+    }
+    return url;
+  }
+
+  /// 현장 사진 원본을 메모리로 받는다 (리포트에 넣을 때). 최대 [maxCount]장, 최신순.
+  Future<List<Uint8List>> downloadScenePhotos(
+    String caseId, {
+    int maxCount = 6,
+    int maxBytesEach = 8 * 1024 * 1024,
+  }) async {
+    final files = (await listCaseFiles(caseId))
+        .where((f) =>
+            f.kind == 'evidence_photo' &&
+            f.size <= maxBytesEach &&
+            (f.mime == 'image/jpeg' || f.mime == 'image/png'))
+        .toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final photos = <Uint8List>[];
+    for (final file in files.take(maxCount)) {
+      try {
+        final url = await fileAccessUrl(caseId: caseId, fileId: file.id);
+        final response = await _storageDio.getUri<List<int>>(
+          Uri.parse(url),
+          options: Options(responseType: ResponseType.bytes),
+        );
+        final data = response.data;
+        if (response.statusCode == 200 && data != null && data.isNotEmpty) {
+          photos.add(Uint8List.fromList(data));
+        }
+      } catch (_) {
+        // 한 장이 실패해도 나머지는 넣는다
+      }
+    }
+    return photos;
+  }
+
+  /// 사건에 올라간 모든 증거 파일 목록
   Future<List<BackendCaseFile>> listCaseFiles(String caseId) async {
     _requireCaseId(caseId);
     final token = await _requiredToken();

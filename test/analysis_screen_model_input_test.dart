@@ -205,8 +205,9 @@ void main() {
       find.text('사용자께서 도로유형 선택 시 더욱 더 정확한 결과가 나옵니다.'),
       findsOneWidget,
     );
-    expect(find.textContaining('43 km/h'), findsOneWidget);
-    expect(find.text('현재 기상 정보를 확인할 수 없습니다.'), findsOneWidget);
+    // 기상·참고 속도 칸은 화면에서 뺐다
+    expect(find.textContaining('43 km/h'), findsNothing);
+    expect(find.text('현재 기상 정보를 확인할 수 없습니다.'), findsNothing);
     expect(find.text('현재 모델은 도로유형 선택이 필요합니다'), findsNothing);
     expect(find.textContaining('목업'), findsNothing);
     expect(find.textContaining('시연용'), findsNothing);
@@ -1069,7 +1070,8 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('기상은 현재 흐림, 17℃, 강수량 0.5mm입니다.'), findsOneWidget);
+    // 기상 칸은 화면에서 뺐다
+    expect(find.text('기상은 현재 흐림, 17℃, 강수량 0.5mm입니다.'), findsNothing);
     expect(find.text('출처: Open-Meteo'), findsNothing);
     expect(find.textContaining('기상 정보를 확인할 수 없습니다'), findsNothing);
   });
@@ -1163,8 +1165,9 @@ void main() {
     expect(find.text('분석 요약'), findsOneWidget);
     expect(find.text('우리 과실 60% · 상대 과실 40%'), findsOneWidget);
     expect(find.text('서울 강남구 테헤란로 1 · 테헤란로 · 신호교차로'), findsOneWidget);
-    expect(find.text('흐림 · 17℃ · 강수량 0.5mm'), findsOneWidget);
-    expect(find.text('43 km/h'), findsOneWidget);
+    // 요약에서도 기상·속도는 뺐다
+    expect(find.text('흐림 · 17℃ · 강수량 0.5mm'), findsNothing);
+    expect(find.text('43 km/h'), findsNothing);
     expect(find.text('확인된 법령·판례 근거 1건'), findsOneWidget);
     expect(find.text(expectedDate), findsOneWidget);
     expect(find.text(legalReferenceWarning), findsNWidgets(2));
