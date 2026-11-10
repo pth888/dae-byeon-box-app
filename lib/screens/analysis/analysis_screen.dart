@@ -17,6 +17,7 @@ import '../../services/map_service.dart';
 import '../../services/model_analysis_service.dart';
 import '../../services/pdf_report_service.dart';
 import '../../utils/theme.dart';
+import '../../widgets/analysis_clip_card.dart';
 import '../../widgets/law_result_panel.dart';
 import '../../widgets/road_question_widget.dart';
 
@@ -700,6 +701,9 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
       // 지도는 없어도 리포트를 만든다.
     }
 
+    // 지도를 기다리는 사이 계정이 바뀌었으면 이전 사건 파일을 새 계정으로 요청하지 않는다
+    if (!isCurrent()) throw StateError('PDF export superseded');
+
     // 초동 대처에서 찍은 현장 사진 (없거나 못 받아도 리포트는 만든다)
     var scenePhotos = <Uint8List>[];
     try {
@@ -870,6 +874,40 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
       lawStatusNote: lawStatusNote,
       unknowns: unknowns,
       aiSummary: aiSummary,
+    );
+  }
+
+  /// 분석에 사용된 영상 구간 카드 (모델이 구간 정보를 준 경우만)
+  Widget? _clipCard(ModelAnalysisReport report) {
+    final caseId = _caseId;
+    if (caseId == null) return null;
+    final prediction =
+        _asMap(_asMap(report.analysis['model'])?['prediction']);
+    final clip = _asMap(prediction?['clip']);
+    final window = clip?['window_ms'];
+    if (window is! List ||
+        window.length != 2 ||
+        window[0] is! num ||
+        window[1] is! num) {
+      return null;
+    }
+    final start = (window[0] as num).toInt();
+    final end = (window[1] as num).toInt();
+    if (end <= start) return null;
+    int? impact;
+    final fps = clip?['fps'];
+    final impactFrame = clip?['impact_frame_est'];
+    final padStart = _asMap(clip?['padded_ms'])?['start'];
+    if (impactFrame is num && fps is num && fps > 0) {
+      final offset = padStart is num ? padStart.toInt() : 0;
+      impact = start - offset + (impactFrame / fps * 1000).round();
+    }
+    return AnalysisClipCard(
+      key: ValueKey('clip-$caseId-$start-$end'),
+      caseId: caseId,
+      startMs: start,
+      endMs: end,
+      impactMs: impact,
     );
   }
 
@@ -1140,6 +1178,10 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
             text: summary,
             color: AppTheme.textSub,
           ),
+          const SizedBox(height: 24),
+        ],
+        if (_clipCard(report) case final clip?) ...[
+          clip,
           const SizedBox(height: 24),
         ],
         LawResultPanel(analysis: report.analysis),

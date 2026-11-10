@@ -519,9 +519,10 @@ void main() {
     await tester.pumpAndSettle();
 
     final selected = find.byKey(const Key('road-option-4'));
+    // 선택 표시는 칩 색으로만 한다 (체크 아이콘 때문에 글자가 밀리지 않게)
     expect(
       find.descendant(of: selected, matching: find.byIcon(Icons.check)),
-      findsOneWidget,
+      findsNothing,
     );
     expect(find.text('GPS 기반 자동 추정값입니다. 필요하면 수정해 주세요.'), findsOneWidget);
     expect(

@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../utils/report_photo.dart';
 import 'auth_service.dart';
 import 'case_service.dart';
 import 'consent_service.dart';
@@ -488,7 +489,8 @@ class BackendEvidenceService {
         );
         final data = response.data;
         if (response.statusCode == 200 && data != null && data.isNotEmpty) {
-          photos.add(Uint8List.fromList(data));
+          // 원본 그대로 넣으면 PDF가 너무 커져 처음 열 때 글자가 깨져 보인다
+          photos.add(await shrinkPhotoForReport(Uint8List.fromList(data)));
         }
       } catch (_) {
         // 한 장이 실패해도 나머지는 넣는다

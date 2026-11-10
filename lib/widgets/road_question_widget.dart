@@ -65,8 +65,9 @@ class RoadQuestionWidget extends StatelessWidget {
             final selected = selectedPlace == place;
             return ChoiceChip(
               key: Key('road-option-$place'),
-              avatar: selected ? const Icon(Icons.check, size: 16) : null,
-              label: Text(roadLabels[place]),
+              // 체크 아이콘을 넣으면 글자가 오른쪽으로 밀리므로 쓰지 않는다.
+              // 선택은 칩 색으로만 보여준다.
+              label: Text(roadLabels[place], textAlign: TextAlign.center),
               selected: selected,
               showCheckmark: false,
               onSelected: isBusy || roadLocked

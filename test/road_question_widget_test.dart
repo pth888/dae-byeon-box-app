@@ -127,7 +127,7 @@ void main() {
     expect(calls, 0);
   });
 
-  testWidgets('selected road exposes a check icon and selected semantics',
+  testWidgets('selected road keeps its label centered and selected semantics',
       (tester) async {
     final semantics = tester.ensureSemantics();
     await tester.pumpWidget(MaterialApp(
@@ -141,9 +141,10 @@ void main() {
     ));
 
     final selected = find.byKey(const Key('road-option-4'));
+    // 체크 아이콘 없이 칩 색으로만 선택을 보여준다 (글자가 밀리지 않게)
     expect(
       find.descendant(of: selected, matching: find.byIcon(Icons.check)),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       tester.getSemantics(selected),

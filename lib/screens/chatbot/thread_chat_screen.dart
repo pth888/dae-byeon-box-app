@@ -31,6 +31,7 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
   final _scaffold = GlobalKey<ScaffoldState>();
   final _messenger = GlobalKey<ScaffoldMessengerState>();
   final _input = TextEditingController();
+  final _inputFocus = FocusNode();
   final _scroll = ScrollController();
   int _lastMessageCount = 0;
   String? _inputThread;
@@ -61,6 +62,7 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
   @override
   void dispose() {
     _input.dispose();
+    _inputFocus.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -211,6 +213,7 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
                   if (!keyboardVisible) _caseSelectButton(state),
                   if (state.sending)
                     const Padding(
+                      key: ValueKey('chat-sending'),
                       padding: EdgeInsets.fromLTRB(20, 8, 20, 8),
                       child: Row(
                         children: [
@@ -234,6 +237,7 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
                     ),
                   if (state.error != null)
                     Padding(
+                      key: const ValueKey('chat-error'),
                       padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.center,
@@ -266,6 +270,7 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
                     ),
                   if (!keyboardVisible)
                     const Padding(
+                      key: ValueKey('chat-legal-warning'),
                       padding: EdgeInsets.fromLTRB(24, 0, 24, 8),
                       child: Text(
                         legalReferenceWarning,
@@ -279,6 +284,7 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
                     ),
                   _composer(state),
                   const Padding(
+                    key: ValueKey('chat-footer'),
                     padding: EdgeInsets.fromLTRB(20, 4, 20, 10),
                     child: Text(
                       kThreadChatAiEnabled
@@ -378,6 +384,7 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
       );
 
   Widget _caseSelectButton(ThreadChatState state) => Padding(
+        key: const ValueKey('chat-case-select'),
         padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
         child: SizedBox(
           width: double.infinity,
@@ -642,7 +649,11 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
         ),
       );
 
+  // 키보드가 올라오면 위쪽 버튼·안내문이 빠지면서 목록 순서가 바뀐다.
+  // key 가 없으면 입력창이 새로 만들어져 포커스를 잃고 키보드가 바로 내려가므로
+  // 입력창과 조건부로 보이는 줄마다 key 를 붙여 같은 입력창이 유지되게 한다.
   Widget _composer(ThreadChatState state) => Padding(
+        key: const ValueKey('chat-composer'),
         padding: const EdgeInsets.fromLTRB(16, 12, 24, 4),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
@@ -662,6 +673,7 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
                 ),
                 child: TextField(
                   controller: _input,
+                  focusNode: _inputFocus,
                   minLines: 1,
                   maxLines: 4,
                   maxLength: 8000,
