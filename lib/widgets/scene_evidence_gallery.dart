@@ -3,7 +3,7 @@
 // 초동 대처 3단계(현장 촬영)에서 찍어 올린 사진·추가 영상 보기
 //   - 서버에 저장된 사건 파일 중 현장 사진(evidence_photo)·추가 영상(additional_video)만 보여준다
 //   - 사진: 눌러서 크게 보기(확대 가능) / 영상: 눌러서 재생
-//   - 삭제: 길게 누르거나, 크게 보기 화면 오른쪽 위 휴지통
+//   - 삭제: 칸 오른쪽 위 휴지통, 길게 누르기, 크게 보기 화면 오른쪽 위 휴지통
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -287,6 +287,30 @@ class _SceneEvidenceGalleryState extends ConsumerState<SceneEvidenceGallery> {
                     child: Text('영상',
                         style: TextStyle(color: Colors.white, fontSize: 11)),
                   ),
+                // 눈에 보이는 삭제 버튼 (길게 누르기를 모르는 사용자도 지울 수 있게)
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: Semantics(
+                    button: true,
+                    label: item.isVideo ? '영상 삭제' : '사진 삭제',
+                    child: GestureDetector(
+                      key: Key('scene-delete-${item.file.id}'),
+                      onTap: () => _confirmDelete(item),
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: const BoxDecoration(
+                          color: Color(0xB3000000),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.delete_outline_rounded,
+                            color: Colors.white, size: 16),
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
