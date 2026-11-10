@@ -13,6 +13,7 @@ import '../../services/auth_service.dart';
 import '../../services/case_service.dart';
 import '../../services/model_analysis_service.dart';
 import '../../utils/theme.dart';
+import '../../widgets/road_question_widget.dart' show roadLabels;
 
 class MyReportsScreen extends ConsumerStatefulWidget {
   const MyReportsScreen({super.key, this.initialCaseId});
@@ -374,7 +375,6 @@ class _MyReportsScreenState extends ConsumerState<MyReportsScreen> {
   // ── 분석 요약본 ──────────────────────────────────────────
   Widget _buildSummary(BackendCase backendCase, BackendReport report) {
     final summary = _parseSummary(report);
-    final weather = summary?.currentWeather;
     final hasGps = backendCase.lat != null && backendCase.lon != null;
 
     return Container(
@@ -407,25 +407,81 @@ class _MyReportsScreenState extends ConsumerState<MyReportsScreen> {
           if (hasGps)
             _row('위치',
                 '${backendCase.lat!.toStringAsFixed(5)}, ${backendCase.lon!.toStringAsFixed(5)}'),
-          if (weather != null)
-            _row('기상',
-                '${weather.condition} · ${weather.temperatureC.toStringAsFixed(1)}°C'),
-          if (summary?.speedDemo != null)
-            _row('참고 속도', '${summary!.speedDemo!.valueKmh} km/h'),
-          _row('법령·판례', summary?.lawAvailable == true ? '근거 포함' : '근거 없음'),
+          if (_roadLabel(summary) case final road?) _row('도로 유형', road),
           _row('분석일', _formatDate(report.createdAt)),
-          if (report.text.trim().isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              report.text.trim(),
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: AppTheme.textSub, fontSize: 12, height: 1.5),
-            ),
-          ],
+          const SizedBox(height: 10),
+          _lawSummary(report),
         ],
       ),
+    );
+  }
+
+  String? _roadLabel(ModelAnalysisReport? summary) {
+    final place = summary?.analyzedPlace ?? summary?.road.place;
+    if (place == null || place < 0 || place >= roadLabels.length) return null;
+    return roadLabels[place];
+  }
+
+  /// 법령·판례 근거 요약 (과실 분석 화면의 "법령·판례 근거"를 짧게)
+  ///   - 항목마다 "출처 · 종류 · 제목"과 내용 첫 2줄만 보여준다
+  Widget _lawSummary(BackendReport report) {
+    LawReportResult? law;
+    try {
+      law = LawReportResult.fromAnalysis(report.analysis);
+    } catch (_) {
+      law = null;
+    }
+    const maxItems = 5;
+    final refs = law?.references ?? const <LawReference>[];
+    String? notice;
+    if (law == null || law.status == 'unavailable') {
+      notice = '법령·판례 검색 결과를 불러올 수 없습니다.';
+    } else if (refs.isEmpty) {
+      notice = '검색된 법령·판례가 없습니다.';
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('법령·판례 근거',
+            style: TextStyle(
+                color: Colors.white,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
+        if (notice != null)
+          Text(notice,
+              style: const TextStyle(color: AppTheme.textSub, fontSize: 12))
+        else ...[
+          for (final ref in refs.take(maxItems))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${ref.source == 'video' ? '영상 후보 관련' : '사용자 추가'} · '
+                    '${ref.kind == 'statute' ? '법령' : ref.kind == 'precedent' ? '판례' : ref.kind} · '
+                    '${ref.title}',
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                  if (ref.excerpt.trim().isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      ref.excerpt.trim(),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: AppTheme.textSub, fontSize: 11.5, height: 1.4),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          if (refs.length > maxItems)
+            Text('외 ${refs.length - maxItems}건 · 전체 내용은 과실 분석 화면과 리포트에서 볼 수 있습니다.',
+                style: const TextStyle(color: AppTheme.textHint, fontSize: 11.5)),
+        ],
+      ],
     );
   }
 
