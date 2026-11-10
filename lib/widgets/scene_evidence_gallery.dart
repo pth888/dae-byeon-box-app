@@ -3,6 +3,7 @@
 // 초동 대처 3단계(현장 촬영)에서 찍어 올린 사진·추가 영상 보기
 //   - 서버에 저장된 사건 파일 중 현장 사진(evidence_photo)·추가 영상(additional_video)만 보여준다
 //   - 사진: 눌러서 크게 보기(확대 가능) / 영상: 눌러서 재생
+//   - 삭제: 길게 누르거나, 크게 보기 화면 오른쪽 위 휴지통
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -105,10 +106,74 @@ class _SceneEvidenceGalleryState extends ConsumerState<SceneEvidenceGallery> {
     if (url == null || !mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
       fullscreenDialog: true,
-      builder: (_) => item.isVideo
-          ? _VideoViewer(url: url)
-          : _PhotoViewer(url: url),
+      builder: (viewerContext) => item.isVideo
+          ? _VideoViewer(
+              url: url,
+              onDelete: () => _confirmDelete(item, viewerContext: viewerContext),
+            )
+          : _PhotoViewer(
+              url: url,
+              onDelete: () => _confirmDelete(item, viewerContext: viewerContext),
+            ),
     ));
+  }
+
+  /// 삭제 확인 → 서버에서 삭제 → 목록에서 빼기
+  Future<void> _confirmDelete(_GalleryItem item,
+      {BuildContext? viewerContext}) async {
+    final dialogContext = viewerContext ?? context;
+    final what = item.isVideo ? '영상' : '사진';
+    final ok = await showDialog<bool>(
+      context: dialogContext,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surfaceDark,
+        title: Text('$what 삭제',
+            style: const TextStyle(color: Colors.white, fontSize: 17)),
+        content: Text(
+          '이 $what을 삭제할까요?\n삭제한 $what은 되돌릴 수 없습니다.',
+          style: const TextStyle(
+              color: AppTheme.textSub, fontSize: 13.5, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소', style: TextStyle(color: AppTheme.textSub)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('삭제', style: TextStyle(color: AppTheme.errorRed)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref
+          .read(backendEvidenceServiceProvider)
+          .deleteCaseFile(caseId: widget.caseId, fileId: item.file.id);
+    } on EvidenceServiceException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+      return;
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('파일을 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.')));
+      return;
+    }
+    if (!mounted) return;
+    // 크게 보기 화면에서 지웠으면 그 화면을 닫는다
+    if (viewerContext != null && viewerContext.mounted) {
+      Navigator.of(viewerContext).pop();
+    }
+    final items = (_items ?? const <_GalleryItem>[])
+        .where((i) => i.file.id != item.file.id)
+        .toList();
+    setState(() => _items = items);
+    widget.onCounts?.call(
+      items.where((i) => !i.isVideo).length,
+      items.where((i) => i.isVideo).length,
+    );
+    messenger.showSnackBar(SnackBar(content: Text('$what을 삭제했습니다.')));
   }
 
   @override
@@ -206,6 +271,7 @@ class _SceneEvidenceGalleryState extends ConsumerState<SceneEvidenceGallery> {
       label: item.isVideo ? '추가 영상 재생' : '현장 사진 크게 보기',
       child: GestureDetector(
         onTap: () => _open(item),
+        onLongPress: () => _confirmDelete(item),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: Container(
@@ -232,8 +298,9 @@ class _SceneEvidenceGalleryState extends ConsumerState<SceneEvidenceGallery> {
 
 // ── 사진 크게 보기 ──────────────────────────────────────────
 class _PhotoViewer extends StatelessWidget {
-  const _PhotoViewer({required this.url});
+  const _PhotoViewer({required this.url, required this.onDelete});
   final String url;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -243,6 +310,13 @@ class _PhotoViewer extends StatelessWidget {
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         title: const Text('현장 사진'),
+        actions: [
+          IconButton(
+            tooltip: '사진 삭제',
+            icon: const Icon(Icons.delete_outline_rounded),
+            onPressed: onDelete,
+          ),
+        ],
       ),
       body: Center(
         child: InteractiveViewer(
@@ -264,8 +338,9 @@ class _PhotoViewer extends StatelessWidget {
 
 // ── 영상 재생 ───────────────────────────────────────────────
 class _VideoViewer extends StatefulWidget {
-  const _VideoViewer({required this.url});
+  const _VideoViewer({required this.url, required this.onDelete});
   final String url;
+  final VoidCallback onDelete;
 
   @override
   State<_VideoViewer> createState() => _VideoViewerState();
@@ -306,6 +381,16 @@ class _VideoViewerState extends State<_VideoViewer> {
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         title: const Text('추가 영상'),
+        actions: [
+          IconButton(
+            tooltip: '영상 삭제',
+            icon: const Icon(Icons.delete_outline_rounded),
+            onPressed: () {
+              _controller.pause();
+              widget.onDelete();
+            },
+          ),
+        ],
       ),
       body: Center(
         child: _failed

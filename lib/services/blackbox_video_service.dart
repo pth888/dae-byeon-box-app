@@ -53,6 +53,12 @@ class EvidenceServiceException implements Exception {
   String toString() => message;
 }
 
+/// 서버가 아직 파일 삭제를 지원하지 않을 때
+class FileDeleteUnsupported extends EvidenceServiceException {
+  const FileDeleteUnsupported()
+      : super('아직 서버에서 사진·영상 삭제를 지원하지 않습니다.');
+}
+
 class InvalidEvidenceException extends EvidenceServiceException {
   const InvalidEvidenceException(super.message);
 }
@@ -464,6 +470,38 @@ class BackendEvidenceService {
       throw const EvidenceServiceException('서버의 파일 접근 응답이 올바르지 않습니다.');
     }
     return url;
+  }
+
+  /// 현장 사진·추가 영상 하나를 지운다. 원본 블랙박스 영상은 지우지 않는다.
+  /// 서버: DELETE /api/v1/cases/{case_id}/files/{file_id}
+  Future<void> deleteCaseFile({
+    required String caseId,
+    required String fileId,
+  }) async {
+    _requireCaseId(caseId);
+    final token = await _requiredToken();
+    final Response<dynamic> response;
+    try {
+      response = await _apiDio.delete(
+        '/api/v1/cases/$caseId/files/$fileId',
+        options: Options(headers: _bearer(token)),
+      );
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      if (status == 405 || status == 501) throw const FileDeleteUnsupported();
+      throw const EvidenceServiceException('파일을 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+    }
+    final status = response.statusCode ?? 0;
+    if (status == 200 || status == 202 || status == 204) return;
+    final body = response.data;
+    // 서버에 삭제 기능 자체가 없을 때 (FastAPI 기본 응답: {"detail": "Not Found"} / 405)
+    final isRouteMissing = status == 405 ||
+        (status == 404 && body is Map && body['detail'] == 'Not Found');
+    if (isRouteMissing) throw const FileDeleteUnsupported();
+    // 이미 지워진 파일이면 성공으로 본다
+    if (status == 404) return;
+    throw EvidenceServiceException(
+        _apiMessage(response, '파일을 삭제하지 못했습니다.'));
   }
 
   /// 현장 사진 원본을 메모리로 받는다 (리포트에 넣을 때). 최대 [maxCount]장, 최신순.
