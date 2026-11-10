@@ -676,7 +676,7 @@ class _ThreadChatScreenState extends ConsumerState<ThreadChatScreen> {
                   focusNode: _inputFocus,
                   minLines: 1,
                   maxLines: 4,
-                  maxLength: 8000,
+                  maxLength: kThreadChatMaxChars,
                   enabled: !state.loading && !state.sending,
                   textInputAction: TextInputAction.newline,
                   cursorColor: Colors.white,

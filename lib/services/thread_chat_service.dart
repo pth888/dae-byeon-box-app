@@ -11,6 +11,9 @@ const kChatApiBaseUrl = String.fromEnvironment(
 // Set by the server launch/build configuration. No API keys are bundled here.
 const kThreadChatAiEnabled = bool.fromEnvironment('CHAT_LLM_ENABLED', defaultValue: false) ||
     String.fromEnvironment('CHAT_LLM_ENABLED') == '1';
+/// 질문 한 번 최대 글자 수.
+/// 서버 허용치(8,000자)보다 작게 잡아, 줄어든 AI 입력 한도 안에 질문이 항상 들어가게 한다.
+const kThreadChatMaxChars = 1000;
 const kThreadChatProvider = String.fromEnvironment('CHAT_LLM_PROVIDER', defaultValue: 'groq');
 const kThreadChatProviderLabel = kThreadChatProvider == 'xai' ? 'xAI Grok' : 'Groq';
 

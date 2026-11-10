@@ -108,8 +108,10 @@ class ThreadChatController extends StateNotifier<ThreadChatState> {
   Future<bool> send(String text, {String? requestId}) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty || state.loading || state.sending) return false;
-    if (trimmed.runes.length > 8000) {
-      state = state.copyWith(error: '메시지는 8000자 이하로 입력해 주세요.');
+    // Groq 무료 한도(분당 8,000토큰)에 맞춰 질문 길이를 줄여 둔다
+    if (trimmed.runes.length > kThreadChatMaxChars) {
+      state = state.copyWith(
+          error: '메시지는 $kThreadChatMaxChars자 이하로 입력해 주세요.');
       return false;
     }
     final request = _revision;
