@@ -1,7 +1,7 @@
 // lib/services/pdf_report_service.dart
 //
 // 담당 기능: 정밀 사고 분석 리포트 PDF 생성 (흰 배경 · 한글 폰트)
-//   1장  결론 · 결과 확실도 · 과실비율 확률 분포 · 사고 정보(+지도) · AI 설명
+//   1장  결론 · 결과 확실도 · 과실비율 확률 분포 · 사고 정보(+지도)
 //   2장  사고 유형 후보 · 분석 영상 구간 · 판단에 들어간 입력
 //   3장  법령·판례 근거 (쟁점별, 원문 전체)
 //   4장  다음에 할 일 · 안내
@@ -284,11 +284,7 @@ class PdfReportService {
               _h2(f, no(), '현장 사진', '초동 대처에서 촬영해 사건에 저장한 사진 · ${d.scenePhotos.length}장'),
               _scenePhotos(d),
             ]),
-          if (d.aiSummary != null) ...[
-            // AI 설명은 길 수 있어 제목만 첫 줄과 묶지 않고, 본문은 페이지를 넘어갈 수 있게 둔다
-            _h2(f, '!', 'AI 설명', '분석 결과를 문장으로 정리한 내용'),
-            _quote(f, d.aiSummary!, dark: true),
-          ],
+          // AI 설명 섹션은 넣지 않는다 (LLM 문장이 대체 안내·형식 깨짐으로 나오는 경우가 있어 리포트에서 제외)
           if (d.typeCandidates.isNotEmpty)
             _keep([
               _h2(f, no(), '모델이 판단한 사고 유형'),
@@ -439,19 +435,6 @@ class PdfReportService {
         ),
         child: pw.Text(text, style: _t(f, size: 8)),
       );
-
-  static pw.Widget _quote(_Fonts f, String text, {bool dark = false}) {
-    return pw.Container(
-      width: double.infinity,
-      padding: const pw.EdgeInsets.fromLTRB(10, 7, 10, 7),
-      decoration: pw.BoxDecoration(
-        color: _fill,
-        border: pw.Border(
-            left: pw.BorderSide(color: dark ? _ink : _brand, width: 2.5)),
-      ),
-      child: pw.Text(text, style: _t(f, size: 9, spacing: 2.5)),
-    );
-  }
 
   static pw.Widget _bullet(_Fonts f, String text, {bool warn = false}) {
     return pw.Container(
