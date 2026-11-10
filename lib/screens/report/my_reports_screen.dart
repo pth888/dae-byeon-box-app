@@ -375,7 +375,6 @@ class _MyReportsScreenState extends ConsumerState<MyReportsScreen> {
   // ── 분석 요약본 ──────────────────────────────────────────
   Widget _buildSummary(BackendCase backendCase, BackendReport report) {
     final summary = _parseSummary(report);
-    final hasGps = backendCase.lat != null && backendCase.lon != null;
 
     return Container(
       width: double.infinity,
@@ -404,9 +403,6 @@ class _MyReportsScreenState extends ConsumerState<MyReportsScreen> {
           else
             _row('과실비율', '확인할 수 없음'),
           const SizedBox(height: 8),
-          if (hasGps)
-            _row('위치',
-                '${backendCase.lat!.toStringAsFixed(5)}, ${backendCase.lon!.toStringAsFixed(5)}'),
           if (_roadLabel(summary) case final road?) _row('도로 유형', road),
           _row('분석일', _formatDate(report.createdAt)),
           const SizedBox(height: 10),
